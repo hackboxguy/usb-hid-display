@@ -155,10 +155,10 @@ void process_rotary_encoder() {
         // Send movement based on detected direction
         if (direction == 1) {
             // Clockwise - move mouse right
-            send_mouse_report(button_state ? 1 : 0, 5, 0, 0);
+            send_mouse_report(button_state ? 1 : 0, -5, 0, 0);
         } else if (direction == -1) {
             // Counter-clockwise - move mouse left
-            send_mouse_report(button_state ? 1 : 0, -5, 0, 0);
+            send_mouse_report(button_state ? 1 : 0, 5, 0, 0);
         }
 
         // Update the last states
