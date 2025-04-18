@@ -7,6 +7,7 @@
 #define CMD_INVERT      0x04
 #define CMD_BRIGHTNESS  0x05
 #define CMD_PROGRESS_BAR 0x06
+#define CMD_POWER       0x07
 #define MAX_CMD_SIZE    128
 
 // Debug flag - set to false for production use
@@ -118,6 +119,17 @@ void handle_command() {
         	}
              }	
     	     break;
+        case CMD_POWER:
+            // Format: CMD_POWER, value (0 or 1)
+            if (serial_buf_pos >= 2) {
+                bool power = serial_buf[1] > 0;
+                ssd1306_power(power);
+
+                if (DEBUG_MODE) {
+                    ssd1306_draw_text(0, 48, power ? "Power: ON" : "Power: OFF");
+                }
+            }
+            break;
 	default:
             // Unknown command
             if (DEBUG_MODE) {
@@ -230,7 +242,12 @@ void tud_cdc_rx_cb(uint8_t itf) {
                     handle_command();
                 }
                 break;
-
+            case CMD_POWER:
+                // Power requires 2 bytes
+                if (serial_buf_pos >= 2) {
+                    handle_command();
+                }
+                break;
             default:
                 // Unknown command, just reset the buffer
                 serial_buf_pos = 0;

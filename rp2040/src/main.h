@@ -31,6 +31,7 @@ void ssd1306_init();
 void ssd1306_clear();
 void ssd1306_draw_text(uint8_t x, uint8_t y, const char* text);
 void ssd1306_invert(bool invert);
+void ssd1306_power(bool power);
 void ssd1306_set_cursor(uint8_t x, uint8_t y);
 void ssd1306_set_brightness(uint8_t brightness);
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress);

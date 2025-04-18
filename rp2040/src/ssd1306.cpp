@@ -204,6 +204,14 @@ void ssd1306_invert(bool invert) {
     }
 }
 
+// Power on/off display
+void ssd1306_power(bool power) {
+    if (power) {
+        ssd1306_command(SSD1306_DISPLAY_ON);
+    } else {
+        ssd1306_command(SSD1306_DISPLAY_OFF);
+    }
+}
 // Set display brightness/contrast (0-255)
 void ssd1306_set_brightness(uint8_t brightness) {
     ssd1306_command(SSD1306_SET_CONTRAST);
