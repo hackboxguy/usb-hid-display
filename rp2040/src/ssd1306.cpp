@@ -135,7 +135,7 @@ static void ssd1306_draw_char(char c) {
     int col = cursor_x;       // Column = x
 
     // Check bounds
-    if (page >= SSD1306_HEIGHT / 8 || col >= SSD1306_WIDTH - 8) return;
+    if (page >= SSD1306_HEIGHT / 8 || col > SSD1306_WIDTH - 8) return;
 
     // The SSD1306 display writes bytes vertically (each byte is 8 vertical pixels)
     // We need to transpose the character data (convert rows to columns)
