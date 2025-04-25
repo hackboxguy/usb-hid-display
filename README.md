@@ -20,6 +20,11 @@ A firmware for rpi-pico to acts as an usb-composite-device(rotary-encoder as hid
 - SW (Button) → GPIO 12 (Pin 16 on Pico)
 - GND → GND (Pin 33 on Pico)
 - VCC → 3.3V (Pin 36 on Pico)
+## Directional push buttons(pull down to GND)
+- LEFT  → GPIO 6 of rp2040
+- RIGHT → GPIO 7 of rp2040
+- TOP   → GPIO 9 of rp2040
+- BOT   → GPIO 8 of rp2040
 
 # How to build firmware for rp2040
 - ```sudo apt update```
@@ -40,3 +45,4 @@ A firmware for rpi-pico to acts as an usb-composite-device(rotary-encoder as hid
 - ```sudo cp usb_hid_display.uf2 /mnt/rp2040/```
 - ```sudo umount /mnt/rp2040```
 - Now rp2040 should show up as /dev/input/eventX and /dev/ttyACMX
+- Test events using ```sudo evtest /dev/input/eventx```
