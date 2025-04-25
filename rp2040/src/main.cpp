@@ -332,8 +332,9 @@ int main() {
 
     // Display startup message - only show briefly
     ssd1306_clear();
-    ssd1306_draw_text(0, 0, "USB HID Display");
-    ssd1306_draw_text(0, 16, "Ready...");
+    //ssd1306_draw_text(0, 0, "USB HID Display");
+    ssd1306_draw_text(0, 0, "Booting.......");
+    //ssd1306_draw_text(0, 16, "Ready...");
     
     // Wait a moment to show startup message then clear
     sleep_ms(2000);
