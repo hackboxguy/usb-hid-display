@@ -3,12 +3,12 @@
 // Rotary encoder GPIO pins
 #define ROTARY_CLK_PIN  10 //REL_X
 #define ROTARY_DT_PIN   11
-#define ROTARY_SW_PIN   12 //ENTER_BTN: BTN_LEFT
+#define ROTARY_SW_PIN   14 //12 //ENTER_BTN: MOUSE_BTN_LEFT
 
 //push-button keys
 #define LEFT_BTN_PIN    6  // REL_X value -5
 #define RIGHT_BTN_PIN   7  // REL_X value 5
-#define TOP_BTN_PIN     9  // REL_Y value 5
+#define TOP_BTN_PIN     15 //9  // REL_Y value 5
 #define BOT_BTN_PIN     8  // REL_Y value -5
 
 // Global state variables
