@@ -1,5 +1,6 @@
 # usb-hid-display
 A firmware for rpi-pico to acts as an usb-composite-device(rotary-encoder as hid-iput and /dev/ttyACMx serial device for controlling SSD1306)
+![Photos.](/images/photos.jpg "Photos.")
 
 # Hardware Requirements
 - Raspberry Pi Pico (~$4-6)
