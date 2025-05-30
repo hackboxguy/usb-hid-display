@@ -22,10 +22,12 @@ A firmware for rpi-pico to acts as an usb-composite-device(rotary-encoder as hid
 - GND → GND (Pin 33 on Pico)
 - VCC → 3.3V (Pin 36 on Pico)
 ## Directional push buttons(pull down to GND)
+![Buttons-Wiring.](/images/buttons-wiring.jpg "Buttons-Wiring.")
 - LEFT  → GPIO 6 of rp2040
 - RIGHT → GPIO 7 of rp2040
-- TOP   → GPIO 9 of rp2040
-- BOT   → GPIO 8 of rp2040
+- UP    → GPIO 8 of rp2040
+- DOWN  → GPIO 15 of rp2040
+- ENTER → GPIO 14 of rp2040
 
 # How to build firmware for rp2040
 - ```sudo apt update```
