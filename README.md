@@ -22,6 +22,7 @@ A firmware for rpi-pico to acts as an usb-composite-device(rotary-encoder as hid
 - GND → GND (Pin 33 on Pico)
 - VCC → 3.3V (Pin 36 on Pico)
 ## Directional push buttons(pull down to GND)
+Pre-compiled uf2 binary for RP2040 with following gpio config can be downloaded from [here](https://github.com/hackboxguy/usb-hid-display/blob/main/rp2040/bin/usb_hid_display.uf2?raw=true)
 ![Buttons-Wiring.](/images/buttons-wiring.jpg "Buttons-Wiring.")
 - LEFT  → GPIO 6 of rp2040
 - RIGHT → GPIO 7 of rp2040
