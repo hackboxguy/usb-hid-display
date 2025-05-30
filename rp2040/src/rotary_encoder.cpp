@@ -1,15 +1,16 @@
 #include "main.h"
 
 // Rotary encoder GPIO pins
-#define ROTARY_CLK_PIN  10 //REL_X
-#define ROTARY_DT_PIN   11
-#define ROTARY_SW_PIN   14 //12 //ENTER_BTN: MOUSE_BTN_LEFT
+#define ROTARY_CLK_PIN  27 //10 //REL_X
+#define ROTARY_DT_PIN   26 //11
+//#define ROTARY_SW_PIN 14 //ENTER_BTN: MOUSE_BTN_LEFT
 
-//push-button keys
+//gpio config for up/down/left/right directional buttons
 #define LEFT_BTN_PIN    6  // REL_X value -5
 #define RIGHT_BTN_PIN   7  // REL_X value 5
-#define TOP_BTN_PIN     15 //9  // REL_Y value 5
-#define BOT_BTN_PIN     8  // REL_Y value -5
+#define TOP_BTN_PIN     15 // REL_Y value 5(mapped to down button)
+#define BOT_BTN_PIN     8  // REL_Y value -5(mapped to up button)
+#define ROTARY_SW_PIN   14 //ENTER_BTN: MOUSE_BTN_LEFT
 
 // Global state variables
 static int last_clk_state = 0;
