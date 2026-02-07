@@ -6,8 +6,8 @@
 //#define ROTARY_SW_PIN 14 //ENTER_BTN: MOUSE_BTN_LEFT
 
 //gpio config for up/down/left/right directional buttons
-#define LEFT_BTN_PIN    6  // REL_X value -5
-#define RIGHT_BTN_PIN   7  // REL_X value 5
+#define LEFT_BTN_PIN    7  // REL_X value -5
+#define RIGHT_BTN_PIN   6  // REL_X value 5
 #define TOP_BTN_PIN     15 // REL_Y value 5(mapped to down button)
 #define BOT_BTN_PIN     8  // REL_Y value -5(mapped to up button)
 #define ROTARY_SW_PIN   14 //ENTER_BTN: MOUSE_BTN_LEFT
