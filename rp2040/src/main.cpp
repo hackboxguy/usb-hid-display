@@ -1,15 +1,5 @@
 #include "main.h"
 
-// Command definitions
-#define CMD_CLEAR       0x01
-#define CMD_DRAW_TEXT   0x02
-#define CMD_SET_CURSOR  0x03
-#define CMD_INVERT      0x04
-#define CMD_BRIGHTNESS  0x05
-#define CMD_PROGRESS_BAR 0x06
-#define CMD_POWER       0x07
-#define MAX_CMD_SIZE    128
-
 // Debug flag - set to false for production use
 #define DEBUG_MODE      false
 
@@ -17,12 +7,10 @@
 static uint8_t serial_buf[MAX_CMD_SIZE];
 static uint8_t serial_buf_pos = 0;
 
-// Buffer for direct CDC communication
-static uint8_t cdc_buffer[128];
-static uint8_t cdc_buffer_pos = 0;
-
-// Flag to indicate whether to use command mode or direct text mode
-static bool command_mode = true;
+// Timestamp for non-blocking text accumulation (CMD_DRAW_TEXT)
+static absolute_time_t text_cmd_start = {0};
+static bool text_cmd_pending = false;
+#define TEXT_CMD_TIMEOUT_US 5000 // 5ms accumulation window
 
 // Handles a serial command once received
 void handle_command() {
@@ -50,7 +38,8 @@ void handle_command() {
                 uint8_t x = serial_buf[1];
                 uint8_t y = serial_buf[2];
 
-                // Null-terminate the text
+                // Null-terminate the text (clamp to avoid overflow)
+                if (serial_buf_pos >= MAX_CMD_SIZE) serial_buf_pos = MAX_CMD_SIZE - 1;
                 serial_buf[serial_buf_pos] = 0;
 
                 // For CMD_DRAW_TEXT, first clear the screen to avoid 
@@ -88,37 +77,39 @@ void handle_command() {
                 }
             }
             break;
-	case CMD_BRIGHTNESS:
+        case CMD_BRIGHTNESS:
             // Format: CMD_BRIGHTNESS, brightness_level (0-255)
-	    if (serial_buf_pos >= 2) {
-        	uint8_t brightness = serial_buf[1];
-        	ssd1306_set_brightness(brightness);
+            if (serial_buf_pos >= 2) {
+                uint8_t brightness = serial_buf[1];
+                ssd1306_set_brightness(brightness);
 
-	        if (DEBUG_MODE) {
-       		    char debug_buf[32];
-            	    snprintf(debug_buf, sizeof(debug_buf), "Brightness: %d", brightness);
-            	    ssd1306_draw_text(0, 48, debug_buf);
-        	}
-    	     }
-             break;
-	case CMD_PROGRESS_BAR:
-    	    // Format: CMD_PROGRESS_BAR, x, y, width, height, progress (0-100)
-    		if (serial_buf_pos >= 6) {
-        		uint8_t x = serial_buf[1];
-		        uint8_t y = serial_buf[2];
-		        uint8_t width = serial_buf[3];
-		        uint8_t height = serial_buf[4];
-		        uint8_t progress = serial_buf[5];
-        
-	        ssd1306_draw_progress_bar(x, y, width, height, progress);
-        
-        	if (DEBUG_MODE) {
-		char debug_buf[32];
-	            snprintf(debug_buf, sizeof(debug_buf), "Progress: %d%%", progress);
-	            ssd1306_draw_text(0, 48, debug_buf);
-        	}
-             }	
-    	     break;
+                if (DEBUG_MODE) {
+                    char debug_buf[32];
+                    snprintf(debug_buf, sizeof(debug_buf), "Brightness: %d", brightness);
+                    ssd1306_draw_text(0, 48, debug_buf);
+                }
+            }
+            break;
+
+        case CMD_PROGRESS_BAR:
+            // Format: CMD_PROGRESS_BAR, x, y, width, height, progress (0-100)
+            if (serial_buf_pos >= 6) {
+                uint8_t x = serial_buf[1];
+                uint8_t y = serial_buf[2];
+                uint8_t width = serial_buf[3];
+                uint8_t height = serial_buf[4];
+                uint8_t progress = serial_buf[5];
+
+                ssd1306_draw_progress_bar(x, y, width, height, progress);
+
+                if (DEBUG_MODE) {
+                    char debug_buf[32];
+                    snprintf(debug_buf, sizeof(debug_buf), "Progress: %d%%", progress);
+                    ssd1306_draw_text(0, 48, debug_buf);
+                }
+            }
+            break;
+
         case CMD_POWER:
             // Format: CMD_POWER, value (0 or 1)
             if (serial_buf_pos >= 2) {
@@ -130,7 +121,8 @@ void handle_command() {
                 }
             }
             break;
-	default:
+
+        default:
             // Unknown command
             if (DEBUG_MODE) {
                 char debug_buf[32];
@@ -152,7 +144,7 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     // When DTR is deasserted, reset the command buffer
     if (!dtr) {
         serial_buf_pos = 0;
-        cdc_buffer_pos = 0;
+        text_cmd_pending = false;
     }
 }
 
@@ -160,140 +152,109 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
 void tud_cdc_rx_cb(uint8_t itf) {
     (void) itf;
 
-    if (command_mode) {
-        // Command mode: Process structured commands
-        // Read data until FIFO is empty or buffer is full
-        uint8_t cmd_type = 0;
-        bool has_cmd_type = false;
-        
-        // If we already have data in the buffer, get the command type
-        if (serial_buf_pos > 0) {
-            cmd_type = serial_buf[0];
+    // If a text command is still accumulating, flush it before reading new data
+    // so back-to-back CMD_DRAW_TEXT commands don't merge into one
+    if (text_cmd_pending) {
+        handle_command();
+        text_cmd_pending = false;
+    }
+
+    // Process structured commands
+    // Read data until FIFO is empty or buffer is full
+    uint8_t cmd_type = 0;
+    bool has_cmd_type = false;
+
+    // If we already have data in the buffer, get the command type
+    if (serial_buf_pos > 0) {
+        cmd_type = serial_buf[0];
+        has_cmd_type = true;
+    }
+
+    // Read available data
+    while (tud_cdc_available() && serial_buf_pos < MAX_CMD_SIZE) {
+        uint8_t c;
+        tud_cdc_read(&c, 1);
+
+        // Add byte to buffer
+        serial_buf[serial_buf_pos++] = c;
+
+        // If this is the first byte, it's our command type
+        if (serial_buf_pos == 1) {
+            cmd_type = c;
             has_cmd_type = true;
         }
-        
-        // Read available data
-        while (tud_cdc_available() && serial_buf_pos < MAX_CMD_SIZE) {
-            uint8_t c;
-            tud_cdc_read(&c, 1);
+    }
 
-            // Add byte to buffer
-            serial_buf[serial_buf_pos++] = c;
-            
-            // If this is the first byte, it's our command type
-            if (serial_buf_pos == 1) {
-                cmd_type = c;
-                has_cmd_type = true;
+    // If we don't have at least a command type yet, wait for more data
+    if (!has_cmd_type) return;
+
+    // Process commands based on type
+    switch (cmd_type) {
+        case CMD_CLEAR:
+            // Clear command only needs one byte
+            if (serial_buf_pos >= 1) {
+                handle_command();
             }
-        }
-        
-        // If we don't have at least a command type yet, wait for more data
-        if (!has_cmd_type) return;
-        
-        // Process commands based on type
-        switch (cmd_type) {
-            case CMD_CLEAR:
-                // Clear command only needs one byte
-                if (serial_buf_pos >= 1) {
-                    handle_command();
-                }
-                break;
-                
-            case CMD_DRAW_TEXT:
-                // For text command, wait for next CDC data if it's just coordinates
-                // This ensures we capture the entire text string
-                if (serial_buf_pos >= 4) {
-                    // Wait a short time for any additional data to arrive
-                    sleep_ms(5);
-                    
-                    // Read any remaining data
-                    while (tud_cdc_available() && serial_buf_pos < MAX_CMD_SIZE) {
-                        tud_cdc_read(&serial_buf[serial_buf_pos++], 1);
-                    }
-                    
-                    // Process the complete command
-                    handle_command();
-                }
-                break;
-                
-            case CMD_SET_CURSOR:
-                // Set cursor requires 3 bytes
-                if (serial_buf_pos >= 3) {
-                    handle_command();
-                }
-                break;
-                
-            case CMD_INVERT:
-                // Invert requires 2 bytes
-                if (serial_buf_pos >= 2) {
-                    handle_command();
-                }
-                break;
-	    case CMD_BRIGHTNESS:
-                // Brightness requires 2 bytes
-                if (serial_buf_pos >= 2) {
-                    handle_command();
-                }
-                break;
+            break;
 
-	    case CMD_PROGRESS_BAR:
-	        // Progress bar requires 6 bytes
-                if (serial_buf_pos >= 6) {
-                    handle_command();
-                }
-                break;
-            case CMD_POWER:
-                // Power requires 2 bytes
-                if (serial_buf_pos >= 2) {
-                    handle_command();
-                }
-                break;
-            default:
-                // Unknown command, just reset the buffer
-                serial_buf_pos = 0;
-                break;
-        }
-        
-        // Also check for CR/LF as alternative command terminator
-        if (serial_buf_pos > 0 && (serial_buf[serial_buf_pos-1] == '\r' || serial_buf[serial_buf_pos-1] == '\n')) {
+        case CMD_DRAW_TEXT:
+            // For text command, start a non-blocking accumulation window
+            // so we capture the entire text string without blocking USB stack
+            if (serial_buf_pos >= 4 && !text_cmd_pending) {
+                text_cmd_start = get_absolute_time();
+                text_cmd_pending = true;
+            }
+            break;
+
+        case CMD_SET_CURSOR:
+            // Set cursor requires 3 bytes
+            if (serial_buf_pos >= 3) {
+                handle_command();
+            }
+            break;
+
+        case CMD_INVERT:
+            // Invert requires 2 bytes
+            if (serial_buf_pos >= 2) {
+                handle_command();
+            }
+            break;
+
+        case CMD_BRIGHTNESS:
+            // Brightness requires 2 bytes
+            if (serial_buf_pos >= 2) {
+                handle_command();
+            }
+            break;
+
+        case CMD_PROGRESS_BAR:
+            // Progress bar requires 6 bytes
+            if (serial_buf_pos >= 6) {
+                handle_command();
+            }
+            break;
+
+        case CMD_POWER:
+            // Power requires 2 bytes
+            if (serial_buf_pos >= 2) {
+                handle_command();
+            }
+            break;
+
+        default:
+            // Unknown command, just reset the buffer
+            serial_buf_pos = 0;
+            break;
+    }
+
+    // If command wasn't processed yet (incomplete), check for CR/LF as
+    // alternative terminator — but only when buffer still has data
+    if (serial_buf_pos > 0 && (serial_buf[serial_buf_pos-1] == '\r' || serial_buf[serial_buf_pos-1] == '\n')) {
+        serial_buf_pos--; // strip the CR/LF before processing
+        if (serial_buf_pos > 0) {
             handle_command();
         }
-    } else {
-        // Direct text mode: Display text directly
-        // Read available data
-        cdc_buffer_pos = 0;
-        while (tud_cdc_available() && cdc_buffer_pos < sizeof(cdc_buffer) - 1) {
-            tud_cdc_read(&cdc_buffer[cdc_buffer_pos], 1);
-            cdc_buffer_pos++;
-        }
-
-        // Null-terminate the buffer
-        cdc_buffer[cdc_buffer_pos] = 0;
-
-        // Clear the display and show the received data
-        ssd1306_clear();
-        ssd1306_draw_text(0, 0, (char*)cdc_buffer);
-
-        // Echo back to the host
-        tud_cdc_write(cdc_buffer, cdc_buffer_pos);
-        tud_cdc_write_flush();
     }
-}
-
-// Toggle command mode function - can be triggered by a special input event
-void toggle_command_mode() {
-    command_mode = !command_mode;
-    
-    ssd1306_clear();
-    if (command_mode) {
-        ssd1306_draw_text(0, 0, "Command Mode");
-    } else {
-        ssd1306_draw_text(0, 0, "Direct Text Mode");
-    }
-    
-    // Short delay to see the mode change
-    sleep_ms(1000);
-    ssd1306_clear();
 }
 
 // HID callbacks
@@ -347,6 +308,16 @@ int main() {
 
         // Process rotary encoder
         process_rotary_encoder();
+
+        // Flush pending CMD_DRAW_TEXT after accumulation window expires
+        if (text_cmd_pending && absolute_time_diff_us(text_cmd_start, get_absolute_time()) >= TEXT_CMD_TIMEOUT_US) {
+            // Read any last data that arrived during the window
+            while (tud_cdc_available() && serial_buf_pos < MAX_CMD_SIZE) {
+                tud_cdc_read(&serial_buf[serial_buf_pos++], 1);
+            }
+            handle_command();
+            text_cmd_pending = false;
+        }
 
         // Handle CDC data processing more aggressively
         uint32_t start = time_us_32();

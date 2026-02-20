@@ -22,22 +22,24 @@ static absolute_time_t last_rotation_time = {0}; // For rotation debouncing
 static const uint32_t DEBOUNCE_TIME_US = 5000; // 5ms debounce (increased)
 static bool last_report_state = false; // Track last reported button state
 
-// Direction button state tracking
-static bool left_btn_last_state = false;
-static bool right_btn_last_state = false;
-static bool top_btn_last_state = false;
-static bool bot_btn_last_state = false;
-static absolute_time_t last_dir_btn_time = {0}; // Separate for direction buttons
+// Direction button configuration and state
+typedef struct {
+    uint gpio_pin;
+    int8_t rel_x;
+    int8_t rel_y;
+    bool last_state;
+    absolute_time_t last_debounce_time;
+    bool second_pending;
+    absolute_time_t first_event_time;
+} dir_button_t;
 
-// Flag to track second event needs for direction buttons
-static bool left_btn_second_pending = false;
-static bool right_btn_second_pending = false;
-static bool top_btn_second_pending = false;
-static bool bot_btn_second_pending = false;
-static absolute_time_t left_btn_first_time = {0};
-static absolute_time_t right_btn_first_time = {0};
-static absolute_time_t top_btn_first_time = {0};
-static absolute_time_t bot_btn_first_time = {0};
+#define NUM_DIR_BUTTONS 4
+static dir_button_t dir_buttons[NUM_DIR_BUTTONS] = {
+    { LEFT_BTN_PIN,   -5,  0, false, {0}, false, {0} },  // Left
+    { RIGHT_BTN_PIN,   5,  0, false, {0}, false, {0} },  // Right
+    { TOP_BTN_PIN,     0, -5, false, {0}, false, {0} },  // Top
+    { BOT_BTN_PIN,     0,  5, false, {0}, false, {0} },  // Bottom
+};
 static const uint32_t SECOND_EVENT_DELAY_US = 16000; // 16ms between events to match rotary
 
 // Mouse report structure
@@ -90,36 +92,24 @@ void setup_rotary_encoder() {
                                       true, &button_callback);
 
     // Initialize direction buttons with pull-up (since they're active low)
-    gpio_init(LEFT_BTN_PIN);
-    gpio_init(RIGHT_BTN_PIN);
-    gpio_init(TOP_BTN_PIN);
-    gpio_init(BOT_BTN_PIN);
+    for (int i = 0; i < NUM_DIR_BUTTONS; i++) {
+        gpio_init(dir_buttons[i].gpio_pin);
+        gpio_set_dir(dir_buttons[i].gpio_pin, GPIO_IN);
+        gpio_pull_up(dir_buttons[i].gpio_pin);
+        dir_buttons[i].last_state = !gpio_get(dir_buttons[i].gpio_pin);
+    }
 
-    gpio_set_dir(LEFT_BTN_PIN, GPIO_IN);
-    gpio_set_dir(RIGHT_BTN_PIN, GPIO_IN);
-    gpio_set_dir(TOP_BTN_PIN, GPIO_IN);
-    gpio_set_dir(BOT_BTN_PIN, GPIO_IN);
-
-    gpio_pull_up(LEFT_BTN_PIN);
-    gpio_pull_up(RIGHT_BTN_PIN);
-    gpio_pull_up(TOP_BTN_PIN);
-    gpio_pull_up(BOT_BTN_PIN);
-
-    // Initialize button states
+    // Initialize rotary encoder states
     last_clk_state = gpio_get(ROTARY_CLK_PIN);
     last_dt_state = gpio_get(ROTARY_DT_PIN);
     button_state = !gpio_get(ROTARY_SW_PIN); // Inverted due to pull-up
     last_report_state = button_state; // Initialize to match
-
-    // Initialize direction button states
-    left_btn_last_state = !gpio_get(LEFT_BTN_PIN);
-    right_btn_last_state = !gpio_get(RIGHT_BTN_PIN);
-    top_btn_last_state = !gpio_get(TOP_BTN_PIN);
-    bot_btn_last_state = !gpio_get(BOT_BTN_PIN);
 }
 
 // Send a mouse report
 static void send_mouse_report(uint8_t buttons, int8_t x, int8_t y, int8_t wheel) {
+    if (!tud_hid_ready()) return;
+
     mouse_report_t report = {
         .buttons = buttons,
         .x = x,
@@ -214,91 +204,32 @@ void process_rotary_encoder() {
         last_dt_state = dt_state;
     }
 
-    // Process any pending second events for direction buttons
-    if (left_btn_second_pending) {
-        if (absolute_time_diff_us(left_btn_first_time, now) >= SECOND_EVENT_DELAY_US) {
-            // Send second event for left button
-            send_mouse_report(button_state ? 1 : 0, -5, 0, 0);
-            left_btn_second_pending = false;
-        }
-    }
-    if (right_btn_second_pending) {
-        if (absolute_time_diff_us(right_btn_first_time, now) >= SECOND_EVENT_DELAY_US) {
-            // Send second event for right button
-            send_mouse_report(button_state ? 1 : 0, 5, 0, 0);
-            right_btn_second_pending = false;
-        }
-    }
-    if (top_btn_second_pending) {
-        if (absolute_time_diff_us(top_btn_first_time, now) >= SECOND_EVENT_DELAY_US) {
-            // Send second event for top button
-            send_mouse_report(button_state ? 1 : 0, 0, -5, 0);
-            top_btn_second_pending = false;
-        }
-    }
-    if (bot_btn_second_pending) {
-        if (absolute_time_diff_us(bot_btn_first_time, now) >= SECOND_EVENT_DELAY_US) {
-            // Send second event for bottom button
-            send_mouse_report(button_state ? 1 : 0, 0, 5, 0);
-            bot_btn_second_pending = false;
-        }
-    }
+    // Process direction buttons: pending second events and new presses
+    uint8_t btn_bits = button_state ? 1 : 0;
 
-    // Process the direction buttons
-    // Only check buttons after sufficient time has passed (to avoid bouncing)
-    if (absolute_time_diff_us(last_dir_btn_time, now) > DEBOUNCE_TIME_US) {
-        // Check each direction button (active low with pull-up)
-        bool left_btn_current = !gpio_get(LEFT_BTN_PIN);
-        bool right_btn_current = !gpio_get(RIGHT_BTN_PIN);
-        bool top_btn_current = !gpio_get(TOP_BTN_PIN);
-        bool bot_btn_current = !gpio_get(BOT_BTN_PIN);
+    for (int i = 0; i < NUM_DIR_BUTTONS; i++) {
+        dir_button_t *btn = &dir_buttons[i];
 
-        // Left button - send REL_X value -5
-        if (left_btn_current != left_btn_last_state) {
-            if (left_btn_current) {
-                // Button press - send first event and schedule second
-                send_mouse_report(button_state ? 1 : 0, -5, 0, 0);
-                left_btn_first_time = now;
-                left_btn_second_pending = true;
+        // Send second event if pending and delay has elapsed
+        if (btn->second_pending) {
+            if (absolute_time_diff_us(btn->first_event_time, now) >= SECOND_EVENT_DELAY_US) {
+                send_mouse_report(btn_bits, btn->rel_x, btn->rel_y, 0);
+                btn->second_pending = false;
             }
-            left_btn_last_state = left_btn_current;
-            last_dir_btn_time = now;
         }
 
-        // Right button - send REL_X value 5
-        if (right_btn_current != right_btn_last_state) {
-            if (right_btn_current) {
-                // Button press - send first event and schedule second
-                send_mouse_report(button_state ? 1 : 0, 5, 0, 0);
-                right_btn_first_time = now;
-                right_btn_second_pending = true;
+        // Poll button with per-button debounce
+        if (absolute_time_diff_us(btn->last_debounce_time, now) > DEBOUNCE_TIME_US) {
+            bool current = !gpio_get(btn->gpio_pin);
+            if (current != btn->last_state) {
+                if (current) {
+                    send_mouse_report(btn_bits, btn->rel_x, btn->rel_y, 0);
+                    btn->first_event_time = now;
+                    btn->second_pending = true;
+                }
+                btn->last_state = current;
+                btn->last_debounce_time = now;
             }
-            right_btn_last_state = right_btn_current;
-            last_dir_btn_time = now;
-        }
-
-        // Top button - send REL_Y value -5
-        if (top_btn_current != top_btn_last_state) {
-            if (top_btn_current) {
-                // Button press - send first event and schedule second
-                send_mouse_report(button_state ? 1 : 0, 0, -5, 0);
-                top_btn_first_time = now;
-                top_btn_second_pending = true;
-            }
-            top_btn_last_state = top_btn_current;
-            last_dir_btn_time = now;
-        }
-
-        // Bottom button - send REL_Y value 5
-        if (bot_btn_current != bot_btn_last_state) {
-            if (bot_btn_current) {
-                // Button press - send first event and schedule second
-                send_mouse_report(button_state ? 1 : 0, 0, 5, 0);
-                bot_btn_first_time = now;
-                bot_btn_second_pending = true;
-            }
-            bot_btn_last_state = bot_btn_current;
-            last_dir_btn_time = now;
         }
     }
 }

@@ -18,13 +18,16 @@
 #define SSD1306_ADDR    0x3C
 
 // Serial protocol commands
-#define CMD_CLEAR       0x01
-#define CMD_DRAW_TEXT   0x02
-#define CMD_SET_CURSOR  0x03
-#define CMD_INVERT      0x04
+#define CMD_CLEAR        0x01
+#define CMD_DRAW_TEXT    0x02
+#define CMD_SET_CURSOR   0x03
+#define CMD_INVERT       0x04
+#define CMD_BRIGHTNESS   0x05
+#define CMD_PROGRESS_BAR 0x06
+#define CMD_POWER        0x07
 
 // Buffer sizes
-#define MAX_CMD_SIZE    128
+#define MAX_CMD_SIZE     128
 
 // Function declarations only (no implementations)
 void ssd1306_init();

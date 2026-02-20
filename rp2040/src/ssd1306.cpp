@@ -1,6 +1,5 @@
 #include "main.h"
 #include "font8x8_basic.h" // This will be created later
-#include <cstdlib> // For malloc and free
 
 // SSD1306 OLED display is 128x64 pixels
 #define SSD1306_WIDTH           128
@@ -39,19 +38,31 @@ static uint8_t display_buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8] = {0};
 static uint8_t cursor_x = 0;
 static uint8_t cursor_y = 0;
 
+// I2C timeout: base overhead + per-byte time
+// At 400kHz each byte takes ~25us (9 bits/byte). Add margin for clock stretching.
+#define I2C_TIMEOUT_BASE_US  5000  // 5ms base for start/stop/addressing overhead
+#define I2C_TIMEOUT_PER_BYTE_US 30 // ~30us per byte (25us actual + margin)
+
+static inline uint32_t i2c_timeout_for(size_t len) {
+    return I2C_TIMEOUT_BASE_US + (len * I2C_TIMEOUT_PER_BYTE_US);
+}
+
 // Function to send command to SSD1306
 static void ssd1306_command(uint8_t command) {
     uint8_t buf[2] = {0x00, command}; // Control byte (0x00) followed by command
-    i2c_write_blocking(I2C_PORT, SSD1306_ADDR, buf, 2, false);
+    i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, buf, 2, false, i2c_timeout_for(2));
 }
 
 // Function to send data to SSD1306
+// Max transfer is full framebuffer (1024) + 1 control byte = 1025 bytes
+#define SSD1306_MAX_TRANSFER (SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1)
+static uint8_t i2c_data_buf[SSD1306_MAX_TRANSFER];
+
 static void ssd1306_data(uint8_t* data, size_t len) {
-    uint8_t *buf = (uint8_t*)malloc(len + 1);
-    buf[0] = 0x40; // Control byte (0x40) for data
-    memcpy(buf + 1, data, len);
-    i2c_write_blocking(I2C_PORT, SSD1306_ADDR, buf, len + 1, false);
-    free(buf);
+    if (len + 1 > SSD1306_MAX_TRANSFER) len = SSD1306_MAX_TRANSFER - 1;
+    i2c_data_buf[0] = 0x40; // Control byte (0x40) for data
+    memcpy(i2c_data_buf + 1, data, len);
+    i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, i2c_data_buf, len + 1, false, i2c_timeout_for(len + 1));
 }
 
 // Initialize SSD1306 OLED display
@@ -128,7 +139,7 @@ void ssd1306_set_cursor(uint8_t x, uint8_t y) {
 
 // Draw a character at current cursor position
 static void ssd1306_draw_char(char c) {
-    if (c < 0 || c > 127) c = '?'; // Handle non-ASCII chars
+    if ((uint8_t)c > 127) c = '?'; // Handle non-ASCII chars
 
     // Calculate buffer position
     int page = cursor_y / 8;  // Page = y / 8 
@@ -226,6 +237,12 @@ void ssd1306_set_brightness(uint8_t brightness) {
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress) {
     // Ensure progress is within range
     if (progress > 100) progress = 100;
+
+    // Clamp to display bounds
+    if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT) return;
+    if (x + width > SSD1306_WIDTH) width = SSD1306_WIDTH - x;
+    if (y + height > SSD1306_HEIGHT) height = SSD1306_HEIGHT - y;
+    if (width < 2 || height < 2) return;
 
     // Calculate progress width in pixels
     uint8_t progress_width = (width * progress) / 100;
