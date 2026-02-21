@@ -15,8 +15,8 @@
 // Global state variables
 static int last_clk_state = 0;
 static int last_dt_state = 0;
-static bool button_state = false; // Current button state (pressed or not)
-static bool button_changed = false; // Flag to indicate button state changed
+static volatile bool button_state = false; // Written in IRQ, read in main loop
+static volatile bool button_changed = false; // Written in IRQ, read in main loop
 static absolute_time_t last_button_time = {0}; // For debouncing
 static absolute_time_t last_rotation_time = {0}; // For rotation debouncing
 static const uint32_t DEBOUNCE_TIME_US = 5000; // 5ms debounce (increased)

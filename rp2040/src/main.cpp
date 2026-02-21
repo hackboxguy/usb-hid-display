@@ -185,6 +185,15 @@ void tud_cdc_rx_cb(uint8_t itf) {
         }
     }
 
+    // If buffer is full but CDC still has data, drain excess to prevent
+    // leftover bytes being misinterpreted as the next command header
+    if (serial_buf_pos >= MAX_CMD_SIZE) {
+        uint8_t discard;
+        while (tud_cdc_available()) {
+            tud_cdc_read(&discard, 1);
+        }
+    }
+
     // If we don't have at least a command type yet, wait for more data
     if (!has_cmd_type) return;
 

@@ -49,13 +49,17 @@ Pre-compiled `.uf2` binary with this GPIO config can be downloaded from [here](h
 
 ![Buttons-Wiring.](/images/buttons-wiring.jpg "Buttons-Wiring.")
 
-| Button | GPIO    | HID Action     |
-|--------|---------|----------------|
+The table below shows the **landscape orientation** (default) mapping. In portrait mode, the physical button roles rotate: LEFT becomes UP, RIGHT becomes DOWN, DOWN becomes LEFT, UP becomes RIGHT.
+
+| Button (Landscape) | GPIO    | HID Action     |
+|---------------------|---------|----------------|
 | LEFT   | GPIO 7  | Mouse X = -5   |
 | RIGHT  | GPIO 6  | Mouse X = +5   |
 | UP     | GPIO 8  | Mouse Y = -5   |
 | DOWN   | GPIO 15 | Mouse Y = +5   |
 | ENTER  | GPIO 14 | Mouse Left Click (shared with rotary SW) |
+
+**Note:** Each directional button press generates two HID movement events (one immediate, one after ~16ms) to match rotary encoder step responsiveness. Host-side daemons should account for this when interpreting navigation input.
 
 ## Serial Command Protocol
 
@@ -64,7 +68,7 @@ The device exposes a CDC serial port (`/dev/ttyACMx`) that accepts binary comman
 | Command | Code | Format | Description |
 |---------|------|--------|-------------|
 | Clear   | `0x01` | `[0x01]` | Clear entire display |
-| Draw Text | `0x02` | `[0x02][x][y][text...]` | Draw text at pixel position (x, y) |
+| Draw Text | `0x02` | `[0x02][x][y][text...]` | Draw text at pixel position (x, y). Text Y is 8-pixel aligned (page-based): use multiples of 8 (0, 8, 16, 24, 32, 40, 48, 56) |
 | Set Cursor | `0x03` | `[0x03][x][y]` | Set cursor to pixel position (x, y) |
 | Invert  | `0x04` | `[0x04][0/1]` | Normal or inverted display mode |
 | Brightness | `0x05` | `[0x05][0-255]` | Set display contrast/brightness |
