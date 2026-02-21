@@ -17,7 +17,7 @@ static int last_clk_state = 0;
 static int last_dt_state = 0;
 static volatile bool button_state = false; // Written in IRQ, read in main loop
 static volatile bool button_changed = false; // Written in IRQ, read in main loop
-static absolute_time_t last_button_time = {0}; // For debouncing
+static volatile uint32_t last_button_time_us = 0; // For debouncing (atomic 32-bit, IRQ-safe)
 static absolute_time_t last_rotation_time = {0}; // For rotation debouncing
 static const uint32_t DEBOUNCE_TIME_US = 5000; // 5ms debounce (increased)
 static bool last_report_state = false; // Track last reported button state
@@ -52,14 +52,14 @@ typedef struct {
 
 // Callback for button pin interrupt
 static void button_callback(uint gpio, uint32_t events) {
-    absolute_time_t now = get_absolute_time();
+    uint32_t now_us = time_us_32();
 
     // Debounce protection
-    if (absolute_time_diff_us(last_button_time, now) < DEBOUNCE_TIME_US) {
+    if ((now_us - last_button_time_us) < DEBOUNCE_TIME_US) {
         return;
     }
 
-    last_button_time = now;
+    last_button_time_us = now_us;
 
     if (gpio == ROTARY_SW_PIN) {
         // Update button state based on the pin state (inverted due to pull-up)
@@ -132,13 +132,14 @@ void process_rotary_encoder() {
     absolute_time_t now = get_absolute_time();
 
     // Check if we need to read the button state directly
-    if (absolute_time_diff_us(last_button_time, now) > 50000) { // 50ms
+    uint32_t now_us = time_us_32();
+    if ((now_us - last_button_time_us) > 50000) { // 50ms
         // Read button state directly as a backup to interrupts
         bool new_state = !gpio_get(ROTARY_SW_PIN);
         if (new_state != button_state) {
             button_state = new_state;
             button_changed = true;
-            last_button_time = now;
+            last_button_time_us = now_us;
         }
     }
 
