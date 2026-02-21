@@ -68,6 +68,16 @@ The table below shows the **landscape orientation** (default) mapping. In portra
 | DOWN   | GPIO 15 | Mouse Y = +5   |
 | ENTER  | GPIO 14 | Mouse Left Click (shared with rotary SW) |
 
+Portrait/landscape mapping summary:
+
+| Physical Button | Landscape Action | Portrait Action |
+|-----------------|------------------|-----------------|
+| LEFT (GPIO 7)   | Left             | Up              |
+| RIGHT (GPIO 6)  | Right            | Down            |
+| UP (GPIO 8)     | Up               | Right           |
+| DOWN (GPIO 15)  | Down             | Left            |
+| ENTER (GPIO 14) | Select (BTN_LEFT)| Select (BTN_LEFT) |
+
 **Note:** Each directional button press generates two HID movement events (one immediate, one after ~16ms) to match rotary encoder step responsiveness. Host-side daemons should account for this when interpreting navigation input.
 
 ## Serial Command Protocol
@@ -83,6 +93,13 @@ The device exposes a CDC serial port (`/dev/ttyACMx`) that accepts binary comman
 | Brightness | `0x05` | `[0x05][0-255]` | Set display contrast/brightness |
 | Progress Bar | `0x06` | `[0x06][x][y][w][h][0-100]` | Draw progress bar at (x, y) with width, height, and percentage |
 | Power   | `0x07` | `[0x07][0/1]` | Turn display off or on |
+
+### Protocol Limits and Caveats
+
+- `MAX_CMD_SIZE` is 128 bytes total per command buffer.
+- Commands that exceed the buffer are truncated to avoid parser desynchronization.
+- `CMD_DRAW_TEXT` uses timeout-based framing (no explicit length byte). Send one `CMD_DRAW_TEXT` command per serial write for best reliability.
+- Text Y is page-based (8-pixel rows): use `0, 8, 16, ..., 56`.
 
 ### Example (Python)
 
@@ -183,6 +200,16 @@ echo -ne '\x02\x00\x00Hello' > /dev/ttyACM0  # draw "Hello" at (0,0)
 | Serial | Unique per chip (from RP2040 flash ID) |
 | bcdDevice | Firmware version as BCD (e.g. `0x1010` for v1.0.1) |
 
+### Version Encoding
+
+`FIRMWARE_VERSION=X.Y.Z` is encoded as USB `bcdDevice = 0xXYZ0`:
+
+| Version | bcdDevice |
+|---------|-----------|
+| `1.0.0` | `1000`    |
+| `1.0.1` | `1010`    |
+| `1.1.0` | `1100`    |
+
 ### Reading firmware info from host
 
 The daemon (or any tool) can read firmware version and orientation from sysfs without opening the serial port:
@@ -197,6 +224,41 @@ cat "$DEVPATH/product"    # e.g. "USB HID Display (portrait)"
 # Read firmware version (BCD format)
 cat "$DEVPATH/bcdDevice"  # e.g. "1100" for v1.1.0
 ```
+
+## Host Integration
+
+Use stable paths instead of raw `eventX` / `ttyACM0` indices:
+
+```bash
+# serial path
+ls -l /dev/serial/by-id/
+
+# input path
+ls -l /dev/input/by-id/
+```
+
+Optional udev rule for a stable symlink:
+
+```bash
+# /etc/udev/rules.d/99-usb-hid-display.rules
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", SYMLINK+="usb-hid-display-%s{serial}"
+```
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Check / Fix |
+|---------|--------------|-------------|
+| No `/dev/ttyACM*` | USB cable or enumeration issue | Try a data-capable cable, check `dmesg -w` |
+| No HID events | Wrong `eventX` selected | Use `evtest` and pick matching device from `/dev/input/by-id` |
+| Display stays blank | I2C wiring/power/address issue | Verify SDA/SCL pins, 3.3V power, GND, SSD1306 address `0x3C` |
+| Buttons feel double-step | Intended dual-event behavior | Account for two events per press in daemon logic |
+| Wrong navigation direction | Orientation mismatch | Rebuild with correct `-DDISPLAY_ORIENTATION` |
+| Permission denied on device files | User/group access | Add user to `dialout` and `input` groups or use udev permissions |
 
 ## License
 
