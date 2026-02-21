@@ -2,6 +2,19 @@
 #include "pico/unique_id.h"
 #include <stdio.h>
 
+// Firmware version as BCD for USB device descriptor (set by CMake)
+#ifndef USB_BCD_DEVICE
+#define USB_BCD_DEVICE 0x0000
+#endif
+
+// Orientation string for USB product descriptor (set by CMake)
+#ifndef USB_ORIENTATION_STR
+#define USB_ORIENTATION_STR "landscape"
+#endif
+
+// Max 31 chars for TinyUSB string descriptor: "USB HID Display (landscape)" = 27
+#define PRODUCT_STRING "USB HID Display (" USB_ORIENTATION_STR ")"
+
 // HID Report Descriptor for Mouse
 uint8_t const desc_hid_report[] = {
     0x05, 0x01,        // Usage Page (Generic Desktop)
@@ -52,7 +65,7 @@ tusb_desc_device_t const desc_device = {
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor           = 0x1209,        // pid.codes VID
     .idProduct          = 0x0001,        // Example PID
-    .bcdDevice          = 0x0100,
+    .bcdDevice          = USB_BCD_DEVICE,
     .iManufacturer      = 0x01,
     .iProduct           = 0x02,
     .iSerialNumber      = 0x03,
@@ -111,8 +124,8 @@ static const char* get_usb_serial(void) {
 // Note: index 3 (serial) is handled specially in tud_descriptor_string_cb
 char const* string_desc_arr[] = {
     (const char[]) { 0x09, 0x04 },       // 0: Supported language is English (0x0409)
-    "DIY Projects",                       // 1: Manufacturer
-    "Pico Encoder Display",              // 2: Product
+    "hackboxguy",                         // 1: Manufacturer
+    PRODUCT_STRING,                      // 2: Product (includes orientation)
     NULL,                                // 3: Serial (populated at runtime from chip ID)
     "CDC Serial"                         // 4: CDC Interface
 };

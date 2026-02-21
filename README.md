@@ -113,7 +113,7 @@ export PICO_SDK_PATH=~/pico-sdk
 git clone https://github.com/hackboxguy/usb-hid-display.git
 cd usb-hid-display/rp2040/
 mkdir build && cd build
-cmake ..
+cmake .. -DFIRMWARE_VERSION=1.0.0
 make -j$(nproc)
 ```
 
@@ -122,9 +122,18 @@ make -j$(nproc)
 To build for portrait mode (buttons rotated 90°, text renders bottom-to-top):
 
 ```bash
-cmake .. -DDISPLAY_ORIENTATION=portrait
+cmake .. -DDISPLAY_ORIENTATION=portrait -DFIRMWARE_VERSION=1.0.0
 make -j$(nproc)
 ```
+
+#### Build options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `DISPLAY_ORIENTATION` | `landscape` | Display orientation: `landscape` or `portrait` |
+| `FIRMWARE_VERSION` | `0.0.0` | Firmware version in `X.Y.Z` format (each digit 0-9) |
+
+Both values are embedded in USB descriptors and exposed to the host via sysfs during USB enumeration.
 
 ### Flashing
 
@@ -160,9 +169,25 @@ echo -ne '\x02\x00\x00Hello' > /dev/ttyACM0  # draw "Hello" at (0,0)
 |-------|-------|
 | Vendor ID  | `0x1209` (pid.codes) |
 | Product ID | `0x0001` |
-| Manufacturer | DIY Projects |
-| Product | Pico Encoder Display |
+| Manufacturer | hackboxguy |
+| Product | `USB HID Display (<orientation>)` — includes build orientation |
 | Serial | Unique per chip (from RP2040 flash ID) |
+| bcdDevice | Firmware version as BCD (e.g. `0x1010` for v1.0.1) |
+
+### Reading firmware info from host
+
+The daemon (or any tool) can read firmware version and orientation from sysfs without opening the serial port:
+
+```bash
+# Find the device (filter by VID:PID)
+DEVPATH=$(grep -rl "1209" /sys/bus/usb/devices/*/idVendor 2>/dev/null | head -1 | xargs dirname)
+
+# Read product string (includes orientation)
+cat "$DEVPATH/product"    # e.g. "USB HID Display (portrait)"
+
+# Read firmware version (BCD format)
+cat "$DEVPATH/bcdDevice"  # e.g. "0110" for v1.1.0
+```
 
 ## License
 
