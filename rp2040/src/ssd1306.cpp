@@ -38,6 +38,9 @@ static uint8_t display_buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8] = {0};
 static uint8_t cursor_x = 0;
 static uint8_t cursor_y = 0;
 
+// Track display connectivity — cleared on I2C failure, set on success
+static bool display_ok = true;
+
 // I2C timeout: base overhead + per-byte time
 // At 400kHz each byte takes ~25us (9 bits/byte). Add margin for clock stretching.
 #define I2C_TIMEOUT_BASE_US  5000  // 5ms base for start/stop/addressing overhead
@@ -48,9 +51,12 @@ static inline uint32_t i2c_timeout_for(size_t len) {
 }
 
 // Function to send command to SSD1306
-static void ssd1306_command(uint8_t command) {
+// Returns true on success, false on I2C failure
+static bool ssd1306_command(uint8_t command) {
     uint8_t buf[2] = {0x00, command}; // Control byte (0x00) followed by command
-    i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, buf, 2, false, i2c_timeout_for(2));
+    int ret = i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, buf, 2, false, i2c_timeout_for(2));
+    display_ok = (ret == 2);
+    return display_ok;
 }
 
 // Function to send data to SSD1306
@@ -58,11 +64,14 @@ static void ssd1306_command(uint8_t command) {
 #define SSD1306_MAX_TRANSFER (SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1)
 static uint8_t i2c_data_buf[SSD1306_MAX_TRANSFER];
 
-static void ssd1306_data(uint8_t* data, size_t len) {
+// Returns true on success, false on I2C failure
+static bool ssd1306_data(uint8_t* data, size_t len) {
     if (len + 1 > SSD1306_MAX_TRANSFER) len = SSD1306_MAX_TRANSFER - 1;
     i2c_data_buf[0] = 0x40; // Control byte (0x40) for data
     memcpy(i2c_data_buf + 1, data, len);
-    i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, i2c_data_buf, len + 1, false, i2c_timeout_for(len + 1));
+    int ret = i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, i2c_data_buf, len + 1, false, i2c_timeout_for(len + 1));
+    display_ok = (ret == (int)(len + 1));
+    return display_ok;
 }
 
 // Initialize SSD1306 OLED display
@@ -115,20 +124,20 @@ void ssd1306_init() {
 void ssd1306_clear() {
     memset(display_buffer, 0, sizeof(display_buffer));
 
-    // Set address range for whole display
-    ssd1306_command(SSD1306_PAGE_ADDR);
-    ssd1306_command(0);
-    ssd1306_command(SSD1306_HEIGHT / 8 - 1);
-    ssd1306_command(SSD1306_COLUMN_ADDR);
-    ssd1306_command(0);
-    ssd1306_command(SSD1306_WIDTH - 1);
+    // Reset cursor position regardless of display state
+    cursor_x = 0;
+    cursor_y = 0;
+
+    // Set address range for whole display (bail on first I2C failure)
+    if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+    if (!ssd1306_command(0)) return;
+    if (!ssd1306_command(SSD1306_HEIGHT / 8 - 1)) return;
+    if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+    if (!ssd1306_command(0)) return;
+    if (!ssd1306_command(SSD1306_WIDTH - 1)) return;
 
     // Send cleared buffer to display
     ssd1306_data(display_buffer, sizeof(display_buffer));
-
-    // Reset cursor position
-    cursor_x = 0;
-    cursor_y = 0;
 }
 
 // Set cursor position
@@ -174,13 +183,13 @@ static void ssd1306_draw_char(char c) {
         }
     }
 
-    // Update the display for this character
-    ssd1306_command(SSD1306_PAGE_ADDR);
-    ssd1306_command(page);
-    ssd1306_command(page);
-    ssd1306_command(SSD1306_COLUMN_ADDR);
-    ssd1306_command(col);
-    ssd1306_command(col + 7);
+    // Update the display for this character (bail on I2C failure)
+    if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+    if (!ssd1306_command(page)) return;
+    if (!ssd1306_command(page)) return;
+    if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+    if (!ssd1306_command(col)) return;
+    if (!ssd1306_command(col + 7)) return;
 
     // Send the character data to display
     ssd1306_data(&display_buffer[page * SSD1306_WIDTH + col], 8);
@@ -279,16 +288,16 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
         }
     }
 
-    // Update the display for the affected area
+    // Update the display for the affected area (bail on I2C failure)
     for (uint8_t page = start_page; page <= end_page; page++) {
-        ssd1306_command(SSD1306_PAGE_ADDR);
-        ssd1306_command(page);
-        ssd1306_command(page);
-        ssd1306_command(SSD1306_COLUMN_ADDR);
-        ssd1306_command(x);
-        ssd1306_command(x + width - 1);
+        if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+        if (!ssd1306_command(page)) return;
+        if (!ssd1306_command(page)) return;
+        if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+        if (!ssd1306_command(x)) return;
+        if (!ssd1306_command(x + width - 1)) return;
 
         // Send the progress bar data to display
-        ssd1306_data(&display_buffer[page * SSD1306_WIDTH + x], width);
+        if (!ssd1306_data(&display_buffer[page * SSD1306_WIDTH + x], width)) return;
     }
 }
