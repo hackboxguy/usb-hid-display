@@ -100,8 +100,8 @@ void ssd1306_init() {
     ssd1306_command(SSD1306_MEMORY_MODE);
     ssd1306_command(0x00); // Horizontal addressing mode
 
-    // Set orientation for normal display (top-left origin)
-    ssd1306_command(SSD1306_SEG_REMAP_REVERSE); // 0xA1 
+    // Same HW registers for both orientations — portrait 180° is done in software
+    ssd1306_command(SSD1306_SEG_REMAP_REVERSE); // 0xA1
     ssd1306_command(SSD1306_COM_SCAN_DEC);      // 0xC8
 
     ssd1306_command(SSD1306_SET_COM_PINS);
@@ -126,7 +126,11 @@ void ssd1306_clear() {
 
     // Reset cursor position regardless of display state
     cursor_x = 0;
+#ifdef DISPLAY_PORTRAIT
+    cursor_y = SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT; // Bottom-left in portrait
+#else
     cursor_y = 0;
+#endif
 
     // Set address range for whole display (bail on first I2C failure)
     if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
@@ -164,12 +168,16 @@ static void ssd1306_draw_char(char c) {
     // Transpose the character (swap rows and columns)
     for (int srcRow = 0; srcRow < 8; srcRow++) {
         uint8_t src_byte = font8x8_basic[(uint8_t)c][srcRow];
-        
+
         for (int srcCol = 0; srcCol < 8; srcCol++) {
             if (src_byte & (1 << srcCol)) {
-                // Set the corresponding bit in the transposed character
-                // Source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
+#ifdef DISPLAY_PORTRAIT
+                // 180° rotation: flip both row and column indices
+                transposed[7 - srcCol] |= (1 << (7 - srcRow));
+#else
+                // Normal: source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
                 transposed[srcCol] |= (1 << srcRow);
+#endif
             }
         }
     }
@@ -209,10 +217,28 @@ static void ssd1306_draw_char(char c) {
 
 // Draw text at specified or current cursor position
 void ssd1306_draw_text(uint8_t x, uint8_t y, const char* text) {
+#ifdef DISPLAY_PORTRAIT
+    // Portrait 180° rotation: flip Y and render string right-to-left (reversed)
+    y = (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) - y;
+
+    // Calculate string length to determine mirrored X start position
+    int len = 0;
+    while (text[len]) len++;
+
+    // Mirror X: place the reversed string so it ends where 'x' would start
+    uint8_t start_x = SSD1306_WIDTH - x - (len * 8);
+    ssd1306_set_cursor(start_x, y);
+
+    // Draw characters in reverse order (each glyph is already 180°-rotated)
+    for (int i = len - 1; i >= 0; i--) {
+        ssd1306_draw_char(text[i]);
+    }
+#else
     ssd1306_set_cursor(x, y);
     while (*text) {
         ssd1306_draw_char(*text++);
     }
+#endif
 }
 
 // Invert display
@@ -244,6 +270,11 @@ void ssd1306_set_brightness(uint8_t brightness) {
 // height: height of the progress bar in pixels
 // progress: value between 0 and 100
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress) {
+#ifdef DISPLAY_PORTRAIT
+    // Portrait 180° rotation: flip both X and Y
+    y = SSD1306_HEIGHT - height - y;
+    x = SSD1306_WIDTH - width - x;
+#endif
     // Ensure progress is within range
     if (progress > 100) progress = 100;
 
@@ -275,10 +306,17 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
                         // This pixel is part of the border
                         mask |= (1 << bit);
                     }
+#ifdef DISPLAY_PORTRAIT
+                    else if (col >= x + width - progress_width) {
+                        // Portrait: fill from right edge (visually left when upside down)
+                        mask |= (1 << bit);
+                    }
+#else
                     else if (col < x + progress_width) {
                         // This pixel is part of the filled area
                         mask |= (1 << bit);
                     }
+#endif
                 }
             }
 

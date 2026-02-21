@@ -117,6 +117,15 @@ cmake ..
 make -j$(nproc)
 ```
 
+#### Portrait orientation build
+
+To build for portrait mode (buttons rotated 90°, text renders bottom-to-top):
+
+```bash
+cmake .. -DDISPLAY_ORIENTATION=portrait
+make -j$(nproc)
+```
+
 ### Flashing
 
 1. Hold the **BOOTSEL** button on the Pico and connect it via USB

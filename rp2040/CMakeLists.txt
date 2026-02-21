@@ -26,6 +26,17 @@ target_link_libraries(usb_hid_display
     tinyusb_board
 )
 
+# Display orientation: "landscape" (default) or "portrait"
+set(DISPLAY_ORIENTATION "landscape" CACHE STRING "Display orientation: landscape or portrait")
+set_property(CACHE DISPLAY_ORIENTATION PROPERTY STRINGS landscape portrait)
+
+if(DISPLAY_ORIENTATION STREQUAL "portrait")
+    message(STATUS "Building with PORTRAIT orientation")
+    target_compile_definitions(usb_hid_display PRIVATE DISPLAY_PORTRAIT=1)
+else()
+    message(STATUS "Building with LANDSCAPE orientation (default)")
+endif()
+
 # Enable USB output, disable UART output
 pico_enable_stdio_usb(usb_hid_display 0)
 pico_enable_stdio_uart(usb_hid_display 0)

@@ -34,12 +34,23 @@ typedef struct {
 } dir_button_t;
 
 #define NUM_DIR_BUTTONS 4
+#ifdef DISPLAY_PORTRAIT
+// Portrait: buttons rotated 90° CCW (LEFT→UP, RIGHT→DOWN, UP→RIGHT, DOWN→LEFT)
+static dir_button_t dir_buttons[NUM_DIR_BUTTONS] = {
+    { LEFT_BTN_PIN,    0, -5, false, {0}, false, {0} },  // LEFT btn → UP
+    { RIGHT_BTN_PIN,   0,  5, false, {0}, false, {0} },  // RIGHT btn → DOWN
+    { TOP_BTN_PIN,     5,  0, false, {0}, false, {0} },  // UP btn → RIGHT
+    { BOT_BTN_PIN,    -5,  0, false, {0}, false, {0} },  // DOWN btn → LEFT
+};
+#else
+// Landscape (default)
 static dir_button_t dir_buttons[NUM_DIR_BUTTONS] = {
     { LEFT_BTN_PIN,   -5,  0, false, {0}, false, {0} },  // Left
     { RIGHT_BTN_PIN,   5,  0, false, {0}, false, {0} },  // Right
     { TOP_BTN_PIN,     0, -5, false, {0}, false, {0} },  // Top
     { BOT_BTN_PIN,     0,  5, false, {0}, false, {0} },  // Bottom
 };
+#endif
 static const uint32_t SECOND_EVENT_DELAY_US = 16000; // 16ms between events to match rotary
 
 // Mouse report structure
