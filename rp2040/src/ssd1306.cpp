@@ -226,8 +226,10 @@ void ssd1306_draw_text(uint8_t x, uint8_t y, const char* text) {
     while (text[len]) len++;
 
     // Mirror X: place the reversed string so it ends where 'x' would start
-    uint8_t start_x = SSD1306_WIDTH - x - (len * 8);
-    ssd1306_set_cursor(start_x, y);
+    // Use signed math to avoid underflow when string is wider than display
+    int start_x = (int)SSD1306_WIDTH - (int)x - (len * 8);
+    if (start_x < 0) start_x = 0;
+    ssd1306_set_cursor((uint8_t)start_x, y);
 
     // Draw characters in reverse order (each glyph is already 180°-rotated)
     for (int i = len - 1; i >= 0; i--) {

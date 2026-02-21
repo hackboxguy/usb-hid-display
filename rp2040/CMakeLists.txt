@@ -33,8 +33,10 @@ set_property(CACHE DISPLAY_ORIENTATION PROPERTY STRINGS landscape portrait)
 if(DISPLAY_ORIENTATION STREQUAL "portrait")
     message(STATUS "Building with PORTRAIT orientation")
     target_compile_definitions(usb_hid_display PRIVATE DISPLAY_PORTRAIT=1)
-else()
+elseif(DISPLAY_ORIENTATION STREQUAL "landscape")
     message(STATUS "Building with LANDSCAPE orientation (default)")
+else()
+    message(FATAL_ERROR "Invalid DISPLAY_ORIENTATION '${DISPLAY_ORIENTATION}'. Must be 'landscape' or 'portrait'.")
 endif()
 
 # Enable USB output, disable UART output
