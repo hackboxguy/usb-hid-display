@@ -117,8 +117,8 @@ void setup_rotary_encoder() {
     last_report_state = button_state; // Initialize to match
 }
 
-// Send a mouse report
-static void send_mouse_report(uint8_t buttons, int8_t x, int8_t y, int8_t wheel) {
+// Send a mouse report (non-static: also called by test commands)
+void send_mouse_report(uint8_t buttons, int8_t x, int8_t y, int8_t wheel) {
     if (!tud_hid_ready()) return;
 
     mouse_report_t report = {

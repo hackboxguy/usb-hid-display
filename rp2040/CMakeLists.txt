@@ -61,6 +61,13 @@ target_compile_definitions(usb_hid_display PRIVATE
     USB_ORIENTATION_STR="${DISPLAY_ORIENTATION}"
 )
 
+# Test/debug commands for automated testing (off by default)
+option(ENABLE_TEST_COMMANDS "Enable test/debug commands for automated testing" OFF)
+if(ENABLE_TEST_COMMANDS)
+    message(STATUS "Test commands ENABLED (0xF0 subcommands)")
+    target_compile_definitions(usb_hid_display PRIVATE ENABLE_TEST_COMMANDS)
+endif()
+
 # Enable USB output, disable UART output
 pico_enable_stdio_usb(usb_hid_display 0)
 pico_enable_stdio_uart(usb_hid_display 0)

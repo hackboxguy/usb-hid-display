@@ -12,6 +12,93 @@ static absolute_time_t text_cmd_start = {0};
 static bool text_cmd_pending = false;
 #define TEXT_CMD_TIMEOUT_US 5000 // 5ms accumulation window
 
+#ifdef ENABLE_TEST_COMMANDS
+// Pending test event for delayed HID reports (button release, second nav event)
+static struct {
+    bool pending;
+    absolute_time_t fire_time;
+    uint8_t buttons;
+    int8_t x;
+    int8_t y;
+} test_pending_event = {false, {0}, 0, 0, 0};
+
+#define TEST_BTN_RELEASE_DELAY_US 50000  // 50ms between press and release
+#define TEST_NAV_SECOND_EVENT_US  16000  // 16ms between nav events (matches real buttons)
+
+static void handle_test_command(uint8_t subcmd) {
+    // Warn if a pending event will be overwritten (debug aid for test timing issues)
+    if (test_pending_event.pending && DEBUG_MODE) {
+        ssd1306_draw_text(0, 48, "WARN:test evt overwrite");
+    }
+
+    switch (subcmd) {
+        case TEST_SUBCMD_PING:
+        {
+            uint8_t reply[2] = {CMD_TEST, TEST_SUBCMD_PING};
+            tud_cdc_write(reply, 2);
+            tud_cdc_write_flush();
+            break;
+        }
+        case TEST_SUBCMD_ROTATE_CW:
+            send_mouse_report(0, -5, 0, 0);
+            break;
+
+        case TEST_SUBCMD_ROTATE_CCW:
+            send_mouse_report(0, 5, 0, 0);
+            break;
+
+        case TEST_SUBCMD_BTN_PRESS:
+            // Send press immediately, queue release after 50ms
+            send_mouse_report(1, 0, 0, 0);
+            test_pending_event.pending = true;
+            test_pending_event.fire_time = make_timeout_time_us(TEST_BTN_RELEASE_DELAY_US);
+            test_pending_event.buttons = 0;
+            test_pending_event.x = 0;
+            test_pending_event.y = 0;
+            break;
+
+        case TEST_SUBCMD_NAV_UP:
+            send_mouse_report(0, 0, -5, 0);
+            test_pending_event.pending = true;
+            test_pending_event.fire_time = make_timeout_time_us(TEST_NAV_SECOND_EVENT_US);
+            test_pending_event.buttons = 0;
+            test_pending_event.x = 0;
+            test_pending_event.y = -5;
+            break;
+
+        case TEST_SUBCMD_NAV_DOWN:
+            send_mouse_report(0, 0, 5, 0);
+            test_pending_event.pending = true;
+            test_pending_event.fire_time = make_timeout_time_us(TEST_NAV_SECOND_EVENT_US);
+            test_pending_event.buttons = 0;
+            test_pending_event.x = 0;
+            test_pending_event.y = 5;
+            break;
+
+        case TEST_SUBCMD_NAV_LEFT:
+            send_mouse_report(0, -5, 0, 0);
+            test_pending_event.pending = true;
+            test_pending_event.fire_time = make_timeout_time_us(TEST_NAV_SECOND_EVENT_US);
+            test_pending_event.buttons = 0;
+            test_pending_event.x = -5;
+            test_pending_event.y = 0;
+            break;
+
+        case TEST_SUBCMD_NAV_RIGHT:
+            send_mouse_report(0, 5, 0, 0);
+            test_pending_event.pending = true;
+            test_pending_event.fire_time = make_timeout_time_us(TEST_NAV_SECOND_EVENT_US);
+            test_pending_event.buttons = 0;
+            test_pending_event.x = 5;
+            test_pending_event.y = 0;
+            break;
+
+        default:
+            break;
+    }
+}
+#endif // ENABLE_TEST_COMMANDS
+
 // Handles a serial command once received
 void handle_command() {
     // Check for minimum command length (1 byte for command type at least)
@@ -250,6 +337,16 @@ void tud_cdc_rx_cb(uint8_t itf) {
             }
             break;
 
+#ifdef ENABLE_TEST_COMMANDS
+        case CMD_TEST:
+            // Test command requires 2 bytes: [0xF0][subcommand]
+            if (serial_buf_pos >= 2) {
+                handle_test_command(serial_buf[1]);
+                serial_buf_pos = 0;
+            }
+            break;
+#endif
+
         default:
             // Unknown command, just reset the buffer
             serial_buf_pos = 0;
@@ -327,6 +424,14 @@ int main() {
             handle_command();
             text_cmd_pending = false;
         }
+
+#ifdef ENABLE_TEST_COMMANDS
+        // Fire pending test event (delayed button release or second nav event)
+        if (test_pending_event.pending && absolute_time_diff_us(test_pending_event.fire_time, get_absolute_time()) >= 0) {
+            send_mouse_report(test_pending_event.buttons, test_pending_event.x, test_pending_event.y, 0);
+            test_pending_event.pending = false;
+        }
+#endif
 
         // Handle CDC data processing more aggressively
         uint32_t start = time_us_32();

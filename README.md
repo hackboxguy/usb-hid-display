@@ -121,6 +121,27 @@ ser.write(bytes([0x06, 10, 30, 108, 12, 75]))
 ser.write(bytes([0x05, 255]))
 ```
 
+## Test Commands (optional, build-time enabled)
+
+When built with `-DENABLE_TEST_COMMANDS=ON`, the firmware accepts command `0xF0` for automated hardware testing. This allows the host test framework to inject simulated HID input events through the CDC serial port without physically pressing buttons.
+
+Production firmware ignores `0xF0` entirely.
+
+| Subcommand | Code | Action | HID Output |
+|------------|------|--------|------------|
+| Ping | `[0xF0][0x00]` | Replies `[0xF0][0x00]` via CDC | None |
+| Rotate CW | `[0xF0][0x01]` | One clockwise encoder step | REL_X = -5 |
+| Rotate CCW | `[0xF0][0x02]` | One counter-clockwise step | REL_X = +5 |
+| Button press | `[0xF0][0x03]` | Encoder push (press + release) | BTN_LEFT down, then up after ~50ms |
+| Navigate up | `[0xF0][0x04]` | Simulated UP button | 2x REL_Y = -5 (~16ms apart) |
+| Navigate down | `[0xF0][0x05]` | Simulated DOWN button | 2x REL_Y = +5 (~16ms apart) |
+| Navigate left | `[0xF0][0x06]` | Simulated LEFT button | 2x REL_X = -5 (~16ms apart) |
+| Navigate right | `[0xF0][0x07]` | Simulated RIGHT button | 2x REL_X = +5 (~16ms apart) |
+
+Navigation test commands produce orientation-independent logical directions — the same HID output regardless of landscape/portrait build.
+
+**Timing:** Allow at least 60ms between nav commands and 80ms after button press before sending the next test command. The host test framework can detect test firmware by sending ping and waiting 500ms for a reply.
+
 ## Building the Firmware
 
 ### Prerequisites
@@ -158,8 +179,20 @@ make -j$(nproc)
 |--------|---------|-------------|
 | `DISPLAY_ORIENTATION` | `landscape` | Display orientation: `landscape` or `portrait` |
 | `FIRMWARE_VERSION` | `0.0.0` | Firmware version in `X.Y.Z` format (each digit 0-9) |
+| `ENABLE_TEST_COMMANDS` | `OFF` | Enable test/debug commands (`0xF0`) for automated testing |
 
-Both values are embedded in USB descriptors and exposed to the host via sysfs during USB enumeration.
+Both `DISPLAY_ORIENTATION` and `FIRMWARE_VERSION` are embedded in USB descriptors and exposed to the host via sysfs during USB enumeration.
+
+#### Test command build
+
+To build firmware with test commands enabled (for automated hardware testing):
+
+```bash
+cmake .. -DENABLE_TEST_COMMANDS=ON -DFIRMWARE_VERSION=1.0.1
+make -j$(nproc)
+```
+
+Production builds (without `-DENABLE_TEST_COMMANDS=ON`) ignore the test command byte entirely.
 
 ### Flashing
 
