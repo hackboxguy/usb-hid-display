@@ -186,7 +186,7 @@ DEVPATH=$(grep -rl "1209" /sys/bus/usb/devices/*/idVendor 2>/dev/null | head -1 
 cat "$DEVPATH/product"    # e.g. "USB HID Display (portrait)"
 
 # Read firmware version (BCD format)
-cat "$DEVPATH/bcdDevice"  # e.g. "0110" for v1.1.0
+cat "$DEVPATH/bcdDevice"  # e.g. "1100" for v1.1.0
 ```
 
 ## License

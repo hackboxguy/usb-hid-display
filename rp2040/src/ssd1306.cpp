@@ -274,8 +274,13 @@ void ssd1306_set_brightness(uint8_t brightness) {
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress) {
 #ifdef DISPLAY_PORTRAIT
     // Portrait 180° rotation: flip both X and Y
-    y = SSD1306_HEIGHT - height - y;
-    x = SSD1306_WIDTH - width - x;
+    // Use signed math to avoid underflow for out-of-range geometry
+    int py = (int)SSD1306_HEIGHT - (int)height - (int)y;
+    int px = (int)SSD1306_WIDTH - (int)width - (int)x;
+    if (py < 0) py = 0;
+    if (px < 0) px = 0;
+    y = (uint8_t)py;
+    x = (uint8_t)px;
 #endif
     // Ensure progress is within range
     if (progress > 100) progress = 100;
