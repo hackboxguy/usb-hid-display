@@ -1,14 +1,23 @@
 # usb-hid-display
 
-A firmware for Raspberry Pi Pico (RP2040) that acts as a USB composite device: a rotary encoder + directional buttons as HID mouse input, and a `/dev/ttyACMx` serial interface for controlling an SSD1306 OLED display.
+A firmware for Raspberry Pi Pico (RP2040) that turns cheap off-the-shelf components (rotary encoder, push buttons, SSD1306 OLED) into a standalone USB micro-panel for embedded Linux devices.
 
 ![Photos.](/images/photos.jpg "Photos.")
 
+## What is this?
+
+This firmware creates a USB composite device with two interfaces:
+
+- **HID Mouse** — The rotary encoder and directional buttons appear as a standard USB mouse to the host. A host-side daemon (such as [micropanel](https://github.com/nicupavel/micropanel)) interprets the relative mouse movements as menu navigation: up, down, left, right, and select.
+- **CDC Serial** (`/dev/ttyACMx`) — The host writes binary commands over this serial port to control the SSD1306 OLED display: draw text, progress bars, set brightness, etc.
+
+Together, these two interfaces form a self-contained hardware menu system — physical buttons for input, OLED for output — driven entirely from the host over a single USB cable. No drivers required; the device uses standard USB HID and CDC ACM classes supported by all major operating systems.
+
 ## Features
 
-- USB HID Mouse: rotary encoder for horizontal movement, directional buttons for X/Y, push button for left-click
+- USB HID Mouse: rotary encoder for horizontal movement, directional buttons for X/Y navigation, push button for left-click/select
 - USB CDC Serial: binary command protocol to draw text, progress bars, control brightness/power/inversion on the SSD1306
-- Composite USB device: both interfaces available simultaneously over a single USB connection
+- Single USB connection: both HID and CDC interfaces available simultaneously
 - Robust I2C communication with timeouts (no hangs if display disconnects)
 - Proper quadrature decoding with Gray code for reliable rotary input
 - Per-button debouncing for all inputs
