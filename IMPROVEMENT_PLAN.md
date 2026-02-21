@@ -128,42 +128,27 @@ Each item will be implemented, tested, and verified before moving to the next.
 
 ## Phase 7: Coordinated Protocol Improvements (requires micropanel update)
 
-These changes require synchronized updates to both the RP2040 firmware and the micropanel daemon. Do not apply firmware changes until the corresponding micropanel release is ready.
+These changes require synchronized updates to both the RP2040 firmware and the micropanel daemon.
 
 ### 7.1 Add length-based framing to CMD_DRAW_TEXT
-- **Files:** `rp2040/src/main.cpp`, `rp2040/src/main.h`
-- **Problem:** `CMD_DRAW_TEXT` (0x02) has no explicit length or terminator. The firmware uses a 5ms timeout (`TEXT_CMD_TIMEOUT_MS`) to decide when the text payload is complete. USB packet coalescing or fragmentation can split or merge text payloads unpredictably.
-- **Current format:** `[0x02][x][y][text...]`
+- **Files:** `rp2040/src/main.cpp`
+- **Problem:** `CMD_DRAW_TEXT` (0x02) had no explicit length or terminator. The firmware used a 5ms timeout to decide when the text payload was complete — fragile under USB packet timing variation.
+- **Old format:** `[0x02][x][y][text...]`
 - **New format:** `[0x02][x][y][len][text...]`
-- **Firmware changes required:**
-  1. In `handle_command()` / text accumulation logic, after reading cmd (0x02), x, and y, read one more byte as `len` (0-124, since MAX_CMD_SIZE is 128 and header is 4 bytes)
-  2. Accumulate exactly `len` bytes of text payload instead of relying on `TEXT_CMD_TIMEOUT_MS`
-  3. Remove the timeout-based text completion path (`text_cmd_pending` / `text_cmd_start_time` logic in the main loop)
-  4. Keep a short safety timeout as a fallback for incomplete/stalled transfers, but the primary framing should be length-based
-- **References:**
-  - `rp2040/src/main.cpp:13` — `TEXT_CMD_TIMEOUT_MS` define
-  - `rp2040/src/main.cpp:209-215` — timeout-based flush in main loop
-  - `rp2040/src/main.cpp:321-328` — text accumulation in CDC callback
-- **Status:** [ ] Pending (waiting for micropanel update)
+- **Fix:** CDC callback now checks `serial_buf[3]` as length byte and calls `handle_command()` when `serial_buf_pos >= 4 + len`. `handle_command()` reads text from `serial_buf[4]` onwards. Safety timeout retained as fallback for stalled transfers. Pre-flush of pending text removed (no longer needed with deterministic framing).
+- **Status:** [x] Done
 
 ### 7.2 Remove CR/LF fallback from binary parser
 - **Files:** `rp2040/src/main.cpp`
-- **Problem:** The firmware treats `\r` (0x0D) and `\n` (0x0A) as command terminators for backward compatibility. In a binary protocol, these byte values are legitimate parameter values (e.g., x=10 is 0x0A, y=13 is 0x0D), causing premature command finalization.
-- **Firmware changes required:**
-  1. Remove the CR/LF detection block that forces `handle_command()` on 0x0D/0x0A bytes
-  2. All commands now have deterministic framing: fixed-length (0x01, 0x03-0x07) or length-prefixed (0x02 after 6.1)
-  3. Ensure micropanel no longer appends `\r` or `\n` after any binary command before applying this change
-- **References:**
-  - `rp2040/src/main.cpp:259-266` — CR/LF fallback block
-- **Dependency:** 7.1 must be implemented first (text needs length-based framing before CR/LF termination can be removed)
-- **Status:** [ ] Pending (waiting for micropanel update)
+- **Problem:** The firmware treated `\r` (0x0D) and `\n` (0x0A) as command terminators. In a binary protocol, these byte values are legitimate parameter values (e.g., x=10 is 0x0A), causing premature command finalization.
+- **Fix:** Removed the CR/LF detection block. All commands now have deterministic framing: fixed-length (0x01, 0x03-0x07) or length-prefixed (0x02).
+- **Status:** [x] Done
 
 ---
 
 ## Summary
 
-- **15 of 16 standalone items completed** (items 1.1 through 5.3, 6.0)
-- **1 standalone item pending** (5.4 PIO encoder - optional, requires discussion)
-- **2 coordinated items pending** (7.1 text framing, 7.2 CR/LF removal - waiting for micropanel)
+- **17 of 18 items completed** (items 1.1 through 5.3, 6.0, 7.1, 7.2)
+- **1 item pending** (5.4 PIO encoder - optional, requires discussion)
 - **Files modified:** main.h, main.cpp, ssd1306.cpp, rotary_encoder.cpp, usb_descriptors.c, CMakeLists.txt
-- **Next step:** Coordinate with micropanel daemon for Phase 7 protocol changes
+- **Next step:** Test coordinated protocol changes with micropanel daemon

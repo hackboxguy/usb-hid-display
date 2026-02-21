@@ -120,21 +120,21 @@ void handle_command() {
             break;
 
         case CMD_DRAW_TEXT:
-            // Format: CMD_DRAW_TEXT, x, y, text...
-            if (serial_buf_pos >= 4) {
+            // Format: CMD_DRAW_TEXT, x, y, len, text...
+            if (serial_buf_pos >= 5) {
                 uint8_t x = serial_buf[1];
                 uint8_t y = serial_buf[2];
+                uint8_t text_len = serial_buf[3];
 
-                // Null-terminate the text (clamp to avoid overflow)
-                if (serial_buf_pos >= MAX_CMD_SIZE) serial_buf_pos = MAX_CMD_SIZE - 1;
-                serial_buf[serial_buf_pos] = 0;
+                // Clamp text length to available buffer
+                if (text_len > MAX_CMD_SIZE - 4) text_len = MAX_CMD_SIZE - 4;
+                if (text_len > serial_buf_pos - 4) text_len = serial_buf_pos - 4;
 
-                // For CMD_DRAW_TEXT, first clear the screen to avoid 
-                // leftover text from previous commands
-                //ssd1306_clear();
-                
-                // Draw text starting from position 3 in buffer
-                ssd1306_draw_text(x, y, (char*)&serial_buf[3]);
+                // Null-terminate the text
+                serial_buf[4 + text_len] = 0;
+
+                // Draw text starting from position 4 in buffer
+                ssd1306_draw_text(x, y, (char*)&serial_buf[4]);
             }
             break;
 
@@ -239,13 +239,6 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
 void tud_cdc_rx_cb(uint8_t itf) {
     (void) itf;
 
-    // If a text command is still accumulating, flush it before reading new data
-    // so back-to-back CMD_DRAW_TEXT commands don't merge into one
-    if (text_cmd_pending) {
-        handle_command();
-        text_cmd_pending = false;
-    }
-
     // Process structured commands
     // Read data until FIFO is empty or buffer is full
     uint8_t cmd_type = 0;
@@ -294,11 +287,19 @@ void tud_cdc_rx_cb(uint8_t itf) {
             break;
 
         case CMD_DRAW_TEXT:
-            // For text command, start a non-blocking accumulation window
-            // so we capture the entire text string without blocking USB stack
-            if (serial_buf_pos >= 4 && !text_cmd_pending) {
-                text_cmd_start = get_absolute_time();
-                text_cmd_pending = true;
+            // Format: [0x02][x][y][len][text...] — length-based framing
+            if (serial_buf_pos >= 4) {
+                uint8_t text_len = serial_buf[3];
+                if (text_len > MAX_CMD_SIZE - 4) text_len = MAX_CMD_SIZE - 4;
+                if (serial_buf_pos >= (uint8_t)(4 + text_len)) {
+                    // All text bytes received — process immediately
+                    handle_command();
+                    text_cmd_pending = false;
+                } else if (!text_cmd_pending) {
+                    // Still waiting for text bytes — start safety timeout
+                    text_cmd_start = get_absolute_time();
+                    text_cmd_pending = true;
+                }
             }
             break;
 
@@ -353,14 +354,6 @@ void tud_cdc_rx_cb(uint8_t itf) {
             break;
     }
 
-    // If command wasn't processed yet (incomplete), check for CR/LF as
-    // alternative terminator — but only when buffer still has data
-    if (serial_buf_pos > 0 && (serial_buf[serial_buf_pos-1] == '\r' || serial_buf[serial_buf_pos-1] == '\n')) {
-        serial_buf_pos--; // strip the CR/LF before processing
-        if (serial_buf_pos > 0) {
-            handle_command();
-        }
-    }
 }
 
 // HID callbacks
@@ -415,9 +408,10 @@ int main() {
         // Process rotary encoder
         process_rotary_encoder();
 
-        // Flush pending CMD_DRAW_TEXT after accumulation window expires
+        // Safety fallback: flush CMD_DRAW_TEXT if transfer stalls (length-based
+        // framing should complete before this, but protects against incomplete sends)
         if (text_cmd_pending && absolute_time_diff_us(text_cmd_start, get_absolute_time()) >= TEXT_CMD_TIMEOUT_US) {
-            // Read any last data that arrived during the window
+            // Read any last data that arrived
             while (tud_cdc_available() && serial_buf_pos < MAX_CMD_SIZE) {
                 tud_cdc_read(&serial_buf[serial_buf_pos++], 1);
             }

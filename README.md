@@ -87,7 +87,7 @@ The device exposes a CDC serial port (`/dev/ttyACMx`) that accepts binary comman
 | Command | Code | Format | Description |
 |---------|------|--------|-------------|
 | Clear   | `0x01` | `[0x01]` | Clear entire display |
-| Draw Text | `0x02` | `[0x02][x][y][text...]` | Draw text at pixel position (x, y). Text Y is 8-pixel aligned (page-based): use multiples of 8 (0, 8, 16, 24, 32, 40, 48, 56) |
+| Draw Text | `0x02` | `[0x02][x][y][len][text...]` | Draw `len` bytes of text at pixel position (x, y). Max len=124. Text Y is 8-pixel aligned (page-based): use multiples of 8 (0, 8, 16, 24, 32, 40, 48, 56) |
 | Set Cursor | `0x03` | `[0x03][x][y]` | Set cursor to pixel position (x, y) |
 | Invert  | `0x04` | `[0x04][0/1]` | Normal or inverted display mode |
 | Brightness | `0x05` | `[0x05][0-255]` | Set display contrast/brightness |
@@ -98,7 +98,8 @@ The device exposes a CDC serial port (`/dev/ttyACMx`) that accepts binary comman
 
 - `MAX_CMD_SIZE` is 128 bytes total per command buffer.
 - Commands that exceed the buffer are truncated to avoid parser desynchronization.
-- `CMD_DRAW_TEXT` uses timeout-based framing (no explicit length byte). Send one `CMD_DRAW_TEXT` command per serial write for best reliability.
+- `CMD_DRAW_TEXT` uses length-based framing: the `len` byte specifies exactly how many text bytes follow (max 124).
+- All commands have deterministic framing — fixed-length (0x01, 0x03-0x07) or length-prefixed (0x02).
 - Text Y is page-based (8-pixel rows): use `0, 8, 16, ..., 56`.
 
 ### Example (Python)
@@ -111,8 +112,8 @@ ser = serial.Serial('/dev/ttyACM0', timeout=1)
 # Clear display
 ser.write(bytes([0x01]))
 
-# Draw text "Hello" at position (0, 0)
-ser.write(bytes([0x02, 0, 0]) + b'Hello')
+# Draw text "Hello" at position (0, 0) — len=5
+ser.write(bytes([0x02, 0, 0, 5]) + b'Hello')
 
 # Draw progress bar at (10, 30), 108px wide, 12px tall, 75%
 ser.write(bytes([0x06, 10, 30, 108, 12, 75]))
@@ -219,7 +220,7 @@ sudo evtest /dev/input/eventX
 
 # Test display commands
 echo -ne '\x01' > /dev/ttyACM0          # clear display
-echo -ne '\x02\x00\x00Hello' > /dev/ttyACM0  # draw "Hello" at (0,0)
+echo -ne '\x02\x00\x00\x05Hello' > /dev/ttyACM0  # draw "Hello" at (0,0), len=5
 ```
 
 ## USB Device Info
