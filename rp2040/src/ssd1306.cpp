@@ -298,8 +298,19 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
     uint8_t start_page = y / 8;
     uint8_t end_page = (y + height - 1) / 8;
 
-    // Draw the progress bar outline
+    // Draw the progress bar outline using read-modify-write to preserve
+    // existing pixels (e.g. text) on shared pages
     for (uint8_t page = start_page; page <= end_page; page++) {
+        // Bitmask of which bits in this page byte belong to the bar's Y range
+        // (same for every column, so compute once per page)
+        uint8_t bar_mask = 0;
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            uint8_t pixel_y = page * 8 + bit;
+            if (pixel_y >= y && pixel_y < y + height) {
+                bar_mask |= (1 << bit);
+            }
+        }
+
         for (uint8_t col = x; col < x + width; col++) {
             uint8_t mask = 0;
 
@@ -327,9 +338,10 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
                 }
             }
 
-            // Update display buffer
+            // Read-modify-write: clear only the bar's Y-range bits, then set new bar pixels.
+            // This preserves text or other content on the same page outside the bar's rows.
             int pos = page * SSD1306_WIDTH + col;
-            display_buffer[pos] = mask;
+            display_buffer[pos] = (display_buffer[pos] & ~bar_mask) | (mask & bar_mask);
         }
     }
 
