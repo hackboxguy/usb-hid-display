@@ -2,7 +2,7 @@
 
 A firmware for Raspberry Pi Pico (RP2040) that turns cheap off-the-shelf components (rotary encoder, push buttons, SSD1306 OLED) into a standalone USB micro-panel for embedded Linux devices.
 
-![Photos.](/images/photos.jpg "Photos.")
+![RP2040-Micropanel](/images/finished-pcb.gif "RP2040-Micropanel 3D View")
 
 ## What is this?
 
@@ -23,6 +23,20 @@ Together, these two interfaces form a self-contained hardware menu system — ph
 - Per-button debouncing for all inputs
 - Unique USB serial number derived from RP2040 chip ID
 - Runtime landscape/portrait orientation via GPIO jumper (single firmware binary)
+
+## Hardware Variants
+
+### Custom PCB — RP2040-Micropanel
+
+A purpose-built PCB designed in KiCad with a Waveshare RP2040-Zero module, SSD1306 OLED, and 5 tactile buttons on a compact board. KiCad project files are available in the [`hardware/`](hardware/) directory.
+
+![RP2040-Micropanel PCB](/images/finished-pcb-collage.jpg "RP2040-Micropanel: KiCad renders and assembled board")
+
+### Prototype — Hand-Soldered
+
+The same firmware runs on any RP2040 board with hand-wired connections on a general-purpose PCB. No custom PCB required — see the wiring diagram in the [Directional Push Buttons](#directional-push-buttons-active-low-directly-connected-to-gnd) section below.
+
+![Prototype builds](/images/photos.jpg "Various prototype builds with hand-soldered connections")
 
 ## Hardware Requirements
 
