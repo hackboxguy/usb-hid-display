@@ -146,9 +146,25 @@ These changes require synchronized updates to both the RP2040 firmware and the m
 
 ---
 
+## Phase 8: Runtime Orientation Detection
+
+### 8.1 GPIO jumper for landscape/portrait selection
+- **Files:** `main.h`, `main.cpp`, `ssd1306.cpp`, `rotary_encoder.cpp`, `usb_descriptors.c`, `CMakeLists.txt`
+- **Problem:** Required two separate firmware builds (`-DDISPLAY_ORIENTATION=portrait` vs landscape)
+- **Fix:** Added runtime orientation detection via GPIO 29 jumper (GND = portrait, floating = landscape). Replaced all 7 compile-time `#ifdef DISPLAY_PORTRAIT` blocks with runtime `if (g_portrait)` checks. Removed `DISPLAY_ORIENTATION` CMake option. USB product string now dynamically reflects detected orientation.
+- **Status:** [x] Done
+
+### 8.2 Progress bar read-modify-write for shared display pages
+- **File:** `rp2040/src/ssd1306.cpp`
+- **Problem:** `ssd1306_draw_progress_bar()` used destructive page writes (`display_buffer[pos] = mask`), overwriting text on shared 8-pixel pages (common in portrait mode after Y-flip)
+- **Fix:** Compute `bar_mask` per page (bits belonging to bar's Y range), then read-modify-write: `(display_buffer[pos] & ~bar_mask) | (mask & bar_mask)` to preserve other content
+- **Status:** [x] Done
+
+---
+
 ## Summary
 
-- **17 of 18 items completed** (items 1.1 through 5.3, 6.0, 7.1, 7.2)
+- **19 of 20 items completed** (items 1.1 through 5.3, 6.0, 7.1, 7.2, 8.1, 8.2)
 - **1 item pending** (5.4 PIO encoder - optional, requires discussion)
 - **Files modified:** main.h, main.cpp, ssd1306.cpp, rotary_encoder.cpp, usb_descriptors.c, CMakeLists.txt
-- **Next step:** Test coordinated protocol changes with micropanel daemon
+- **Next step:** Test runtime orientation with GPIO 29 jumper on hardware

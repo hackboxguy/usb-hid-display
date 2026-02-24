@@ -22,6 +22,7 @@ Together, these two interfaces form a self-contained hardware menu system — ph
 - Proper quadrature decoding with Gray code for reliable rotary input
 - Per-button debouncing for all inputs
 - Unique USB serial number derived from RP2040 chip ID
+- Runtime landscape/portrait orientation via GPIO jumper (single firmware binary)
 
 ## Hardware Requirements
 
@@ -30,6 +31,7 @@ Together, these two interfaces form a self-contained hardware menu system — ph
 - Rotary encoder with push button
 - 4x directional push buttons (active-low, directly connected to GPIO with internal pull-ups)
 - Micro USB cable
+- Optional: jumper wire for portrait mode (GPIO 27 to GND)
 
 ## Hardware Connections
 
@@ -46,11 +48,22 @@ Together, these two interfaces form a self-contained hardware menu system — ph
 
 | Signal     | GPIO    | Pico Pin |
 |------------|---------|----------|
-| CLK (A)    | GPIO 27 | Pin 32   |
-| DT (B)     | GPIO 26 | Pin 31   |
-| SW (Enter) | GPIO 14 | Pin 19   |
+| CLK (A)    | GPIO 10 | Pin 14   |
+| DT (B)     | GPIO 11 | Pin 15   |
+| SW (Button)| GPIO 12 | Pin 16   |
 | VCC        | 3.3V    | Pin 36   |
 | GND        | GND     | Pin 38   |
+
+### Orientation Jumper
+
+The firmware detects landscape or portrait mode at boot from GPIO 27:
+
+| GPIO 27 State | Orientation |
+|---------------|-------------|
+| Floating (internal pull-up → HIGH) | **Landscape** (default) |
+| Connected to GND (LOW) | **Portrait** |
+
+No separate firmware builds needed — a single `.uf2` handles both orientations. The detected orientation is reflected in the USB product string (`"USB HID Display (landscape)"` or `"USB HID Display (portrait)"`).
 
 ### Directional Push Buttons (active-low, directly connected to GND)
 
@@ -165,24 +178,14 @@ cmake .. -DFIRMWARE_VERSION=1.0.0
 make -j$(nproc)
 ```
 
-#### Portrait orientation build
-
-To build for portrait mode (buttons rotated 90°, text renders bottom-to-top):
-
-```bash
-cmake .. -DDISPLAY_ORIENTATION=portrait -DFIRMWARE_VERSION=1.0.0
-make -j$(nproc)
-```
-
 #### Build options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `DISPLAY_ORIENTATION` | `landscape` | Display orientation: `landscape` or `portrait` |
 | `FIRMWARE_VERSION` | `0.0.0` | Firmware version in `X.Y.Z` format (each digit 0-9) |
 | `ENABLE_TEST_COMMANDS` | `OFF` | Enable test/debug commands (`0xF0`) for automated testing |
 
-Both `DISPLAY_ORIENTATION` and `FIRMWARE_VERSION` are embedded in USB descriptors and exposed to the host via sysfs during USB enumeration.
+`FIRMWARE_VERSION` is embedded in USB descriptors and exposed to the host via sysfs during USB enumeration. Orientation is detected at runtime from the GPIO 27 jumper (no build flag needed).
 
 #### Test command build
 
@@ -230,7 +233,7 @@ echo -ne '\x02\x00\x00\x05Hello' > /dev/ttyACM0  # draw "Hello" at (0,0), len=5
 | Vendor ID  | `0x1209` (pid.codes) |
 | Product ID | `0x0001` |
 | Manufacturer | hackboxguy |
-| Product | `USB HID Display (<orientation>)` — includes build orientation |
+| Product | `USB HID Display (<orientation>)` — reflects runtime GPIO jumper state |
 | Serial | Unique per chip (from RP2040 flash ID) |
 | bcdDevice | Firmware version as BCD (e.g. `0x1010` for v1.0.1) |
 
@@ -291,7 +294,7 @@ sudo udevadm trigger
 | No HID events | Wrong `eventX` selected | Use `evtest` and pick matching device from `/dev/input/by-id` |
 | Display stays blank | I2C wiring/power/address issue | Verify SDA/SCL pins, 3.3V power, GND, SSD1306 address `0x3C` |
 | Buttons feel double-step | Intended dual-event behavior | Account for two events per press in daemon logic |
-| Wrong navigation direction | Orientation mismatch | Rebuild with correct `-DDISPLAY_ORIENTATION` |
+| Wrong navigation direction | Orientation mismatch | Check GPIO 27 jumper: GND = portrait, floating = landscape |
 | Permission denied on device files | User/group access | Add user to `dialout` and `input` groups or use udev permissions |
 
 ## License

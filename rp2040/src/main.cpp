@@ -1,5 +1,8 @@
 #include "main.h"
 
+// Runtime orientation flag (read from GPIO jumper at boot)
+bool g_portrait = false;
+
 // Debug flag - set to false for production use
 #define DEBUG_MODE      false
 
@@ -380,6 +383,13 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 int main() {
     // Initialize board
     stdio_init_all();
+
+    // Read orientation jumper before USB init (so product string is correct)
+    gpio_init(ORIENTATION_PIN);
+    gpio_set_dir(ORIENTATION_PIN, GPIO_IN);
+    gpio_pull_up(ORIENTATION_PIN);
+    sleep_us(10); // Let pull-up settle
+    g_portrait = !gpio_get(ORIENTATION_PIN); // LOW = portrait, HIGH = landscape
 
     // Initialize TinyUSB
     tusb_init();

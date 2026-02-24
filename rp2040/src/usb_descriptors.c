@@ -7,13 +7,9 @@
 #define USB_BCD_DEVICE 0x0000
 #endif
 
-// Orientation string for USB product descriptor (set by CMake)
-#ifndef USB_ORIENTATION_STR
-#define USB_ORIENTATION_STR "landscape"
-#endif
-
-// Max 31 chars for TinyUSB string descriptor: "USB HID Display (landscape)" = 27
-#define PRODUCT_STRING "USB HID Display (" USB_ORIENTATION_STR ")"
+// Product strings for runtime orientation (selected by g_portrait flag)
+#define PRODUCT_STRING_LANDSCAPE "USB HID Display (landscape)"
+#define PRODUCT_STRING_PORTRAIT  "USB HID Display (portrait)"
 
 // HID Report Descriptor for Mouse
 uint8_t const desc_hid_report[] = {
@@ -125,7 +121,7 @@ static const char* get_usb_serial(void) {
 char const* string_desc_arr[] = {
     (const char[]) { 0x09, 0x04 },       // 0: Supported language is English (0x0409)
     "hackboxguy",                         // 1: Manufacturer
-    PRODUCT_STRING,                      // 2: Product (includes orientation)
+    NULL,                                // 2: Product (resolved at runtime from g_portrait)
     NULL,                                // 3: Serial (populated at runtime from chip ID)
     "CDC Serial"                         // 4: CDC Interface
 };
@@ -145,8 +141,16 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
         // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
         if (!(index < sizeof(string_desc_arr)/sizeof(string_desc_arr[0]))) return NULL;
 
-        // Index 3 is serial number — use chip unique ID
-        const char* str = (index == 3) ? get_usb_serial() : string_desc_arr[index];
+        // Index 2 = product (runtime orientation), index 3 = serial (chip ID)
+        const char* str;
+        extern bool g_portrait;
+        if (index == 2) {
+            str = g_portrait ? PRODUCT_STRING_PORTRAIT : PRODUCT_STRING_LANDSCAPE;
+        } else if (index == 3) {
+            str = get_usb_serial();
+        } else {
+            str = string_desc_arr[index];
+        }
 
         // Cap at max char
         chr_count = strlen(str);

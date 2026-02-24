@@ -26,18 +26,7 @@ target_link_libraries(usb_hid_display
     tinyusb_board
 )
 
-# Display orientation: "landscape" (default) or "portrait"
-set(DISPLAY_ORIENTATION "landscape" CACHE STRING "Display orientation: landscape or portrait")
-set_property(CACHE DISPLAY_ORIENTATION PROPERTY STRINGS landscape portrait)
-
-if(DISPLAY_ORIENTATION STREQUAL "portrait")
-    message(STATUS "Building with PORTRAIT orientation")
-    target_compile_definitions(usb_hid_display PRIVATE DISPLAY_PORTRAIT=1)
-elseif(DISPLAY_ORIENTATION STREQUAL "landscape")
-    message(STATUS "Building with LANDSCAPE orientation (default)")
-else()
-    message(FATAL_ERROR "Invalid DISPLAY_ORIENTATION '${DISPLAY_ORIENTATION}'. Must be 'landscape' or 'portrait'.")
-endif()
+# Orientation is detected at runtime via GPIO 27 jumper (no build flag needed)
 
 # Firmware version: "X.Y.Z" where X, Y, Z are single digits (0-9)
 set(FIRMWARE_VERSION "0.0.0" CACHE STRING "Firmware version in X.Y.Z format (each digit 0-9)")
@@ -55,10 +44,9 @@ list(GET VERSION_PARTS 2 VERSION_PATCH)
 set(BCD_HEX "${VERSION_MAJOR}${VERSION_MINOR}${VERSION_PATCH}0")
 message(STATUS "Firmware version: ${FIRMWARE_VERSION} (bcdDevice=0x${BCD_HEX})")
 
-# Pass version and orientation to USB descriptors
+# Pass version to USB descriptors
 target_compile_definitions(usb_hid_display PRIVATE
     USB_BCD_DEVICE=0x${BCD_HEX}
-    USB_ORIENTATION_STR="${DISPLAY_ORIENTATION}"
 )
 
 # Test/debug commands for automated testing (off by default)

@@ -9,6 +9,10 @@
 #include "pico/unique_id.h"
 #include "tusb.h"
 
+// Orientation jumper: GPIO 27 to GND = portrait, floating (pull-up) = landscape
+#define ORIENTATION_PIN 27
+extern bool g_portrait;
+
 // I2C defines
 #define I2C_PORT        i2c0
 #define I2C_SDA_PIN     4

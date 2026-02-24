@@ -126,11 +126,7 @@ void ssd1306_clear() {
 
     // Reset cursor position regardless of display state
     cursor_x = 0;
-#ifdef DISPLAY_PORTRAIT
-    cursor_y = SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT; // Bottom-left in portrait
-#else
-    cursor_y = 0;
-#endif
+    cursor_y = g_portrait ? (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) : 0;
 
     // Set address range for whole display (bail on first I2C failure)
     if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
@@ -171,13 +167,13 @@ static void ssd1306_draw_char(char c) {
 
         for (int srcCol = 0; srcCol < 8; srcCol++) {
             if (src_byte & (1 << srcCol)) {
-#ifdef DISPLAY_PORTRAIT
-                // 180° rotation: flip both row and column indices
-                transposed[7 - srcCol] |= (1 << (7 - srcRow));
-#else
-                // Normal: source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
-                transposed[srcCol] |= (1 << srcRow);
-#endif
+                if (g_portrait) {
+                    // 180° rotation: flip both row and column indices
+                    transposed[7 - srcCol] |= (1 << (7 - srcRow));
+                } else {
+                    // Normal: source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
+                    transposed[srcCol] |= (1 << srcRow);
+                }
             }
         }
     }
@@ -217,30 +213,30 @@ static void ssd1306_draw_char(char c) {
 
 // Draw text at specified or current cursor position
 void ssd1306_draw_text(uint8_t x, uint8_t y, const char* text) {
-#ifdef DISPLAY_PORTRAIT
-    // Portrait 180° rotation: flip Y and render string right-to-left (reversed)
-    y = (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) - y;
+    if (g_portrait) {
+        // Portrait 180° rotation: flip Y and render string right-to-left (reversed)
+        y = (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) - y;
 
-    // Calculate string length to determine mirrored X start position
-    int len = 0;
-    while (text[len]) len++;
+        // Calculate string length to determine mirrored X start position
+        int len = 0;
+        while (text[len]) len++;
 
-    // Mirror X: place the reversed string so it ends where 'x' would start
-    // Use signed math to avoid underflow when string is wider than display
-    int start_x = (int)SSD1306_WIDTH - (int)x - (len * 8);
-    if (start_x < 0) start_x = 0;
-    ssd1306_set_cursor((uint8_t)start_x, y);
+        // Mirror X: place the reversed string so it ends where 'x' would start
+        // Use signed math to avoid underflow when string is wider than display
+        int start_x = (int)SSD1306_WIDTH - (int)x - (len * 8);
+        if (start_x < 0) start_x = 0;
+        ssd1306_set_cursor((uint8_t)start_x, y);
 
-    // Draw characters in reverse order (each glyph is already 180°-rotated)
-    for (int i = len - 1; i >= 0; i--) {
-        ssd1306_draw_char(text[i]);
+        // Draw characters in reverse order (each glyph is already 180°-rotated)
+        for (int i = len - 1; i >= 0; i--) {
+            ssd1306_draw_char(text[i]);
+        }
+    } else {
+        ssd1306_set_cursor(x, y);
+        while (*text) {
+            ssd1306_draw_char(*text++);
+        }
     }
-#else
-    ssd1306_set_cursor(x, y);
-    while (*text) {
-        ssd1306_draw_char(*text++);
-    }
-#endif
 }
 
 // Invert display
@@ -272,16 +268,16 @@ void ssd1306_set_brightness(uint8_t brightness) {
 // height: height of the progress bar in pixels
 // progress: value between 0 and 100
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress) {
-#ifdef DISPLAY_PORTRAIT
-    // Portrait 180° rotation: flip both X and Y
-    // Use signed math to avoid underflow for out-of-range geometry
-    int py = (int)SSD1306_HEIGHT - (int)height - (int)y;
-    int px = (int)SSD1306_WIDTH - (int)width - (int)x;
-    if (py < 0) py = 0;
-    if (px < 0) px = 0;
-    y = (uint8_t)py;
-    x = (uint8_t)px;
-#endif
+    if (g_portrait) {
+        // Portrait 180° rotation: flip both X and Y
+        // Use signed math to avoid underflow for out-of-range geometry
+        int py = (int)SSD1306_HEIGHT - (int)height - (int)y;
+        int px = (int)SSD1306_WIDTH - (int)width - (int)x;
+        if (py < 0) py = 0;
+        if (px < 0) px = 0;
+        y = (uint8_t)py;
+        x = (uint8_t)px;
+    }
     // Ensure progress is within range
     if (progress > 100) progress = 100;
 
@@ -324,17 +320,11 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
                         // This pixel is part of the border
                         mask |= (1 << bit);
                     }
-#ifdef DISPLAY_PORTRAIT
-                    else if (col >= x + width - progress_width) {
-                        // Portrait: fill from right edge (visually left when upside down)
+                    else if (g_portrait ? (col >= x + width - progress_width)
+                                        : (col < x + progress_width)) {
+                        // Fill area: portrait fills from right, landscape from left
                         mask |= (1 << bit);
                     }
-#else
-                    else if (col < x + progress_width) {
-                        // This pixel is part of the filled area
-                        mask |= (1 << bit);
-                    }
-#endif
                 }
             }
 

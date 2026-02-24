@@ -1,16 +1,16 @@
 #include "main.h"
 
 // Rotary encoder GPIO pins
-#define ROTARY_CLK_PIN  27 //10 //REL_X
-#define ROTARY_DT_PIN   26 //11
-//#define ROTARY_SW_PIN 14 //ENTER_BTN: MOUSE_BTN_LEFT
+#define ROTARY_CLK_PIN  10
+#define ROTARY_DT_PIN   11
+#define ROTARY_SW_PIN   12
 
 //gpio config for up/down/left/right directional buttons
 #define LEFT_BTN_PIN    7  // REL_X value -5
 #define RIGHT_BTN_PIN   6  // REL_X value 5
 #define TOP_BTN_PIN     15 // REL_Y value 5(mapped to down button)
 #define BOT_BTN_PIN     8  // REL_Y value -5(mapped to up button)
-#define ROTARY_SW_PIN   14 //ENTER_BTN: MOUSE_BTN_LEFT
+#define ENTER_BTN_PIN   14 // MOUSE_BTN_LEFT (active-low, directly connected)
 
 // Global state variables
 static int last_clk_state = 0;
@@ -34,23 +34,13 @@ typedef struct {
 } dir_button_t;
 
 #define NUM_DIR_BUTTONS 4
-#ifdef DISPLAY_PORTRAIT
-// Portrait: buttons rotated 90° CCW (LEFT→UP, RIGHT→DOWN, UP→RIGHT, DOWN→LEFT)
-static dir_button_t dir_buttons[NUM_DIR_BUTTONS] = {
-    { LEFT_BTN_PIN,    0, -5, false, {0}, false, {0} },  // LEFT btn → UP
-    { RIGHT_BTN_PIN,   0,  5, false, {0}, false, {0} },  // RIGHT btn → DOWN
-    { TOP_BTN_PIN,     5,  0, false, {0}, false, {0} },  // UP btn → RIGHT
-    { BOT_BTN_PIN,    -5,  0, false, {0}, false, {0} },  // DOWN btn → LEFT
-};
-#else
-// Landscape (default)
+// Landscape (default) — portrait mapping applied at runtime in setup_rotary_encoder()
 static dir_button_t dir_buttons[NUM_DIR_BUTTONS] = {
     { LEFT_BTN_PIN,   -5,  0, false, {0}, false, {0} },  // Left
     { RIGHT_BTN_PIN,   5,  0, false, {0}, false, {0} },  // Right
     { TOP_BTN_PIN,     0, -5, false, {0}, false, {0} },  // Top
     { BOT_BTN_PIN,     0,  5, false, {0}, false, {0} },  // Bottom
 };
-#endif
 static const uint32_t SECOND_EVENT_DELAY_US = 16000; // 16ms between events to match rotary
 
 // Mouse report structure
@@ -61,7 +51,12 @@ typedef struct {
     int8_t wheel;
 } mouse_report_t;
 
-// Callback for button pin interrupt
+// Read combined button state: pressed if either ROTARY_SW or ENTER is pressed
+static bool read_button_pressed() {
+    return !gpio_get(ROTARY_SW_PIN) || !gpio_get(ENTER_BTN_PIN);
+}
+
+// Callback for button pin interrupt (handles both ROTARY_SW and ENTER)
 static void button_callback(uint gpio, uint32_t events) {
     uint32_t now_us = time_us_32();
 
@@ -72,9 +67,8 @@ static void button_callback(uint gpio, uint32_t events) {
 
     last_button_time_us = now_us;
 
-    if (gpio == ROTARY_SW_PIN) {
-        // Update button state based on the pin state (inverted due to pull-up)
-        bool new_state = !gpio_get(ROTARY_SW_PIN);
+    if (gpio == ROTARY_SW_PIN || gpio == ENTER_BTN_PIN) {
+        bool new_state = read_button_pressed();
 
         // Only process if state actually changed
         if (new_state != button_state) {
@@ -94,13 +88,36 @@ void setup_rotary_encoder() {
     gpio_pull_up(ROTARY_CLK_PIN);
     gpio_pull_up(ROTARY_DT_PIN);
 
-    // Initialize button pin with pull-up and interrupts
+    // Initialize rotary encoder button pin with pull-up and interrupts
     gpio_init(ROTARY_SW_PIN);
     gpio_set_dir(ROTARY_SW_PIN, GPIO_IN);
     gpio_pull_up(ROTARY_SW_PIN);
     gpio_set_irq_enabled_with_callback(ROTARY_SW_PIN,
                                       GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE,
                                       true, &button_callback);
+
+    // Initialize standalone ENTER button with pull-up and interrupts
+    gpio_init(ENTER_BTN_PIN);
+    gpio_set_dir(ENTER_BTN_PIN, GPIO_IN);
+    gpio_pull_up(ENTER_BTN_PIN);
+    gpio_set_irq_enabled(ENTER_BTN_PIN,
+                         GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE,
+                         true);
+
+    // Apply portrait button mapping if jumper is set
+    // Portrait rotates 90° CCW: LEFT→UP, RIGHT→DOWN, TOP→RIGHT, BOT→LEFT
+    if (g_portrait) {
+        // Portrait mapping: (rel_x, rel_y)
+        // LEFT:  (-5, 0) → (0, -5)   RIGHT: (5, 0) → (0, 5)
+        // TOP:   (0, -5) → (5, 0)    BOT:   (0, 5) → (-5, 0)
+        static const int8_t portrait_map[NUM_DIR_BUTTONS][2] = {
+            { 0, -5}, { 0,  5}, { 5,  0}, {-5,  0}
+        };
+        for (int i = 0; i < NUM_DIR_BUTTONS; i++) {
+            dir_buttons[i].rel_x = portrait_map[i][0];
+            dir_buttons[i].rel_y = portrait_map[i][1];
+        }
+    }
 
     // Initialize direction buttons with pull-up (since they're active low)
     for (int i = 0; i < NUM_DIR_BUTTONS; i++) {
@@ -113,7 +130,7 @@ void setup_rotary_encoder() {
     // Initialize rotary encoder states
     last_clk_state = gpio_get(ROTARY_CLK_PIN);
     last_dt_state = gpio_get(ROTARY_DT_PIN);
-    button_state = !gpio_get(ROTARY_SW_PIN); // Inverted due to pull-up
+    button_state = read_button_pressed(); // Either ROTARY_SW or ENTER
     last_report_state = button_state; // Initialize to match
 }
 
@@ -146,7 +163,7 @@ void process_rotary_encoder() {
     uint32_t now_us = time_us_32();
     if ((now_us - last_button_time_us) > 50000) { // 50ms
         // Read button state directly as a backup to interrupts
-        bool new_state = !gpio_get(ROTARY_SW_PIN);
+        bool new_state = read_button_pressed();
         if (new_state != button_state) {
             button_state = new_state;
             button_changed = true;
