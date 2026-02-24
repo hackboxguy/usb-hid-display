@@ -8,7 +8,7 @@ A firmware for Raspberry Pi Pico (RP2040) that turns cheap off-the-shelf compone
 
 This firmware creates a USB composite device with two interfaces:
 
-- **HID Mouse** — The rotary encoder and directional buttons appear as a standard USB mouse to the host. A host-side daemon (such as [micropanel](https://github.com/nicupavel/micropanel)) interprets the relative mouse movements as menu navigation: up, down, left, right, and select.
+- **HID Mouse** — The rotary encoder and directional buttons appear as a standard USB mouse to the host. A host-side daemon (such as [micropanel](https://github.com/hackboxguy/micropanel/tree/opus_4_6_improvements)) interprets the relative mouse movements as menu navigation: up, down, left, right, and select.
 - **CDC Serial** (`/dev/ttyACMx`) — The host writes binary commands over this serial port to control the SSD1306 OLED display: draw text, progress bars, set brightness, etc.
 
 Together, these two interfaces form a self-contained hardware menu system — physical buttons for input, OLED for output — driven entirely from the host over a single USB cable. No drivers required; the device uses standard USB HID and CDC ACM classes supported by all major operating systems.
