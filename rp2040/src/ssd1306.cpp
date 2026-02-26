@@ -1,6 +1,5 @@
 #include "main.h"
 #include "font8x8_basic.h" // This will be created later
-#include <cstdlib> // For malloc and free
 
 // SSD1306 OLED display is 128x64 pixels
 #define SSD1306_WIDTH           128
@@ -39,19 +38,40 @@ static uint8_t display_buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8] = {0};
 static uint8_t cursor_x = 0;
 static uint8_t cursor_y = 0;
 
+// Track display connectivity — cleared on I2C failure, set on success
+static bool display_ok = true;
+
+// I2C timeout: base overhead + per-byte time
+// At 400kHz each byte takes ~25us (9 bits/byte). Add margin for clock stretching.
+#define I2C_TIMEOUT_BASE_US  5000  // 5ms base for start/stop/addressing overhead
+#define I2C_TIMEOUT_PER_BYTE_US 30 // ~30us per byte (25us actual + margin)
+
+static inline uint32_t i2c_timeout_for(size_t len) {
+    return I2C_TIMEOUT_BASE_US + (len * I2C_TIMEOUT_PER_BYTE_US);
+}
+
 // Function to send command to SSD1306
-static void ssd1306_command(uint8_t command) {
+// Returns true on success, false on I2C failure
+static bool ssd1306_command(uint8_t command) {
     uint8_t buf[2] = {0x00, command}; // Control byte (0x00) followed by command
-    i2c_write_blocking(I2C_PORT, SSD1306_ADDR, buf, 2, false);
+    int ret = i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, buf, 2, false, i2c_timeout_for(2));
+    display_ok = (ret == 2);
+    return display_ok;
 }
 
 // Function to send data to SSD1306
-static void ssd1306_data(uint8_t* data, size_t len) {
-    uint8_t *buf = (uint8_t*)malloc(len + 1);
-    buf[0] = 0x40; // Control byte (0x40) for data
-    memcpy(buf + 1, data, len);
-    i2c_write_blocking(I2C_PORT, SSD1306_ADDR, buf, len + 1, false);
-    free(buf);
+// Max transfer is full framebuffer (1024) + 1 control byte = 1025 bytes
+#define SSD1306_MAX_TRANSFER (SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1)
+static uint8_t i2c_data_buf[SSD1306_MAX_TRANSFER];
+
+// Returns true on success, false on I2C failure
+static bool ssd1306_data(uint8_t* data, size_t len) {
+    if (len + 1 > SSD1306_MAX_TRANSFER) len = SSD1306_MAX_TRANSFER - 1;
+    i2c_data_buf[0] = 0x40; // Control byte (0x40) for data
+    memcpy(i2c_data_buf + 1, data, len);
+    int ret = i2c_write_timeout_us(I2C_PORT, SSD1306_ADDR, i2c_data_buf, len + 1, false, i2c_timeout_for(len + 1));
+    display_ok = (ret == (int)(len + 1));
+    return display_ok;
 }
 
 // Initialize SSD1306 OLED display
@@ -80,8 +100,8 @@ void ssd1306_init() {
     ssd1306_command(SSD1306_MEMORY_MODE);
     ssd1306_command(0x00); // Horizontal addressing mode
 
-    // Set orientation for normal display (top-left origin)
-    ssd1306_command(SSD1306_SEG_REMAP_REVERSE); // 0xA1 
+    // Same HW registers for both orientations — portrait 180° is done in software
+    ssd1306_command(SSD1306_SEG_REMAP_REVERSE); // 0xA1
     ssd1306_command(SSD1306_COM_SCAN_DEC);      // 0xC8
 
     ssd1306_command(SSD1306_SET_COM_PINS);
@@ -104,20 +124,20 @@ void ssd1306_init() {
 void ssd1306_clear() {
     memset(display_buffer, 0, sizeof(display_buffer));
 
-    // Set address range for whole display
-    ssd1306_command(SSD1306_PAGE_ADDR);
-    ssd1306_command(0);
-    ssd1306_command(SSD1306_HEIGHT / 8 - 1);
-    ssd1306_command(SSD1306_COLUMN_ADDR);
-    ssd1306_command(0);
-    ssd1306_command(SSD1306_WIDTH - 1);
+    // Reset cursor position regardless of display state
+    cursor_x = 0;
+    cursor_y = g_portrait ? (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) : 0;
+
+    // Set address range for whole display (bail on first I2C failure)
+    if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+    if (!ssd1306_command(0)) return;
+    if (!ssd1306_command(SSD1306_HEIGHT / 8 - 1)) return;
+    if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+    if (!ssd1306_command(0)) return;
+    if (!ssd1306_command(SSD1306_WIDTH - 1)) return;
 
     // Send cleared buffer to display
     ssd1306_data(display_buffer, sizeof(display_buffer));
-
-    // Reset cursor position
-    cursor_x = 0;
-    cursor_y = 0;
 }
 
 // Set cursor position
@@ -128,7 +148,7 @@ void ssd1306_set_cursor(uint8_t x, uint8_t y) {
 
 // Draw a character at current cursor position
 static void ssd1306_draw_char(char c) {
-    if (c < 0 || c > 127) c = '?'; // Handle non-ASCII chars
+    if ((uint8_t)c > 127) c = '?'; // Handle non-ASCII chars
 
     // Calculate buffer position
     int page = cursor_y / 8;  // Page = y / 8 
@@ -144,12 +164,16 @@ static void ssd1306_draw_char(char c) {
     // Transpose the character (swap rows and columns)
     for (int srcRow = 0; srcRow < 8; srcRow++) {
         uint8_t src_byte = font8x8_basic[(uint8_t)c][srcRow];
-        
+
         for (int srcCol = 0; srcCol < 8; srcCol++) {
             if (src_byte & (1 << srcCol)) {
-                // Set the corresponding bit in the transposed character
-                // Source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
-                transposed[srcCol] |= (1 << srcRow);
+                if (g_portrait) {
+                    // 180° rotation: flip both row and column indices
+                    transposed[7 - srcCol] |= (1 << (7 - srcRow));
+                } else {
+                    // Normal: source bit at (srcRow, srcCol) goes to (srcCol, srcRow)
+                    transposed[srcCol] |= (1 << srcRow);
+                }
             }
         }
     }
@@ -163,13 +187,13 @@ static void ssd1306_draw_char(char c) {
         }
     }
 
-    // Update the display for this character
-    ssd1306_command(SSD1306_PAGE_ADDR);
-    ssd1306_command(page);
-    ssd1306_command(page);
-    ssd1306_command(SSD1306_COLUMN_ADDR);
-    ssd1306_command(col);
-    ssd1306_command(col + 7);
+    // Update the display for this character (bail on I2C failure)
+    if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+    if (!ssd1306_command(page)) return;
+    if (!ssd1306_command(page)) return;
+    if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+    if (!ssd1306_command(col)) return;
+    if (!ssd1306_command(col + 7)) return;
 
     // Send the character data to display
     ssd1306_data(&display_buffer[page * SSD1306_WIDTH + col], 8);
@@ -189,9 +213,29 @@ static void ssd1306_draw_char(char c) {
 
 // Draw text at specified or current cursor position
 void ssd1306_draw_text(uint8_t x, uint8_t y, const char* text) {
-    ssd1306_set_cursor(x, y);
-    while (*text) {
-        ssd1306_draw_char(*text++);
+    if (g_portrait) {
+        // Portrait 180° rotation: flip Y and render string right-to-left (reversed)
+        y = (SSD1306_HEIGHT - SSD1306_PAGE_HEIGHT) - y;
+
+        // Calculate string length to determine mirrored X start position
+        int len = 0;
+        while (text[len]) len++;
+
+        // Mirror X: place the reversed string so it ends where 'x' would start
+        // Use signed math to avoid underflow when string is wider than display
+        int start_x = (int)SSD1306_WIDTH - (int)x - (len * 8);
+        if (start_x < 0) start_x = 0;
+        ssd1306_set_cursor((uint8_t)start_x, y);
+
+        // Draw characters in reverse order (each glyph is already 180°-rotated)
+        for (int i = len - 1; i >= 0; i--) {
+            ssd1306_draw_char(text[i]);
+        }
+    } else {
+        ssd1306_set_cursor(x, y);
+        while (*text) {
+            ssd1306_draw_char(*text++);
+        }
     }
 }
 
@@ -224,8 +268,24 @@ void ssd1306_set_brightness(uint8_t brightness) {
 // height: height of the progress bar in pixels
 // progress: value between 0 and 100
 void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t progress) {
+    if (g_portrait) {
+        // Portrait 180° rotation: flip both X and Y
+        // Use signed math to avoid underflow for out-of-range geometry
+        int py = (int)SSD1306_HEIGHT - (int)height - (int)y;
+        int px = (int)SSD1306_WIDTH - (int)width - (int)x;
+        if (py < 0) py = 0;
+        if (px < 0) px = 0;
+        y = (uint8_t)py;
+        x = (uint8_t)px;
+    }
     // Ensure progress is within range
     if (progress > 100) progress = 100;
+
+    // Clamp to display bounds
+    if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT) return;
+    if (x + width > SSD1306_WIDTH) width = SSD1306_WIDTH - x;
+    if (y + height > SSD1306_HEIGHT) height = SSD1306_HEIGHT - y;
+    if (width < 2 || height < 2) return;
 
     // Calculate progress width in pixels
     uint8_t progress_width = (width * progress) / 100;
@@ -234,8 +294,19 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
     uint8_t start_page = y / 8;
     uint8_t end_page = (y + height - 1) / 8;
 
-    // Draw the progress bar outline
+    // Draw the progress bar outline using read-modify-write to preserve
+    // existing pixels (e.g. text) on shared pages
     for (uint8_t page = start_page; page <= end_page; page++) {
+        // Bitmask of which bits in this page byte belong to the bar's Y range
+        // (same for every column, so compute once per page)
+        uint8_t bar_mask = 0;
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            uint8_t pixel_y = page * 8 + bit;
+            if (pixel_y >= y && pixel_y < y + height) {
+                bar_mask |= (1 << bit);
+            }
+        }
+
         for (uint8_t col = x; col < x + width; col++) {
             uint8_t mask = 0;
 
@@ -249,29 +320,31 @@ void ssd1306_draw_progress_bar(uint8_t x, uint8_t y, uint8_t width, uint8_t heig
                         // This pixel is part of the border
                         mask |= (1 << bit);
                     }
-                    else if (col < x + progress_width) {
-                        // This pixel is part of the filled area
+                    else if (g_portrait ? (col >= x + width - progress_width)
+                                        : (col < x + progress_width)) {
+                        // Fill area: portrait fills from right, landscape from left
                         mask |= (1 << bit);
                     }
                 }
             }
 
-            // Update display buffer
+            // Read-modify-write: clear only the bar's Y-range bits, then set new bar pixels.
+            // This preserves text or other content on the same page outside the bar's rows.
             int pos = page * SSD1306_WIDTH + col;
-            display_buffer[pos] = mask;
+            display_buffer[pos] = (display_buffer[pos] & ~bar_mask) | (mask & bar_mask);
         }
     }
 
-    // Update the display for the affected area
+    // Update the display for the affected area (bail on I2C failure)
     for (uint8_t page = start_page; page <= end_page; page++) {
-        ssd1306_command(SSD1306_PAGE_ADDR);
-        ssd1306_command(page);
-        ssd1306_command(page);
-        ssd1306_command(SSD1306_COLUMN_ADDR);
-        ssd1306_command(x);
-        ssd1306_command(x + width - 1);
+        if (!ssd1306_command(SSD1306_PAGE_ADDR)) return;
+        if (!ssd1306_command(page)) return;
+        if (!ssd1306_command(page)) return;
+        if (!ssd1306_command(SSD1306_COLUMN_ADDR)) return;
+        if (!ssd1306_command(x)) return;
+        if (!ssd1306_command(x + width - 1)) return;
 
         // Send the progress bar data to display
-        ssd1306_data(&display_buffer[page * SSD1306_WIDTH + x], width);
+        if (!ssd1306_data(&display_buffer[page * SSD1306_WIDTH + x], width)) return;
     }
 }
